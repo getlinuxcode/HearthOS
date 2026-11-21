@@ -131,7 +131,8 @@ func _scan() -> void:
 	_list.add_child(spin)
 	var nets = await App.api("GET", "/network/wifi")
 	spin.queue_free()
-	if not (nets is Array):
+	if not (nets is Array) or nets.is_empty():
+		_list.add_child(UI.label("Aucun réseau Wi-Fi : pas de carte Wi-Fi détectée, ou aucun réseau à portée.", 24, 400, UI.DIM))
 		return
 	var i := 0
 	for n in nets:

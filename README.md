@@ -41,15 +41,30 @@ lancement animé · menu en jeu (bouton PS) · sons synthétisés propres.
 Contrôle de compilation de tous les scripts : `bash scripts/check-console.sh`.
 Crédits des ressources : [console/assets/CREDITS.md](console/assets/CREDITS.md).
 
-## ISO et VM
+## ISO et VM (VirtualBox, sans WSL ni Docker)
 
-Prérequis : WSL2 ou Docker Desktop (pour construire) et VirtualBox (pour la VM).
-Il faut aussi exporter l'interface pour Linux (modèles d'export Godot) — pas encore fait.
+L'ISO est construite dans une VM Arch Linux temporaire (« Hearth-build »), puis démarrée dans la VM « Hearth ».
+
+1. Première fois : télécharger l'ISO Arch officielle dans `vm/archlinux-x86_64.iso`, créer la VM « Hearth-build »
+   (BIOS, 6 Go, disque de 80 Go, redirection SSH 127.0.0.1:2222 → 22), y déposer la clé `vm/ssh/id_ed25519.pub`
+   dans `/root/.ssh/authorized_keys` et démarrer `sshd`.
+2. Construire (≈ 15 min la première fois, paquets ensuite en cache) :
 
 ```powershell
-.\scripts\build-iso.ps1
+npm run build -w daemon
 ```
 
 ```powershell
-.\scripts\run-vm.ps1
+bash scripts/build-iso-vm.sh
 ```
+
+3. Démarrer l'ISO dans la VM « Hearth » (UEFI, 8 Go, 3D, manettes USB Sony/Microsoft transmises) :
+
+```powershell
+.scriptsun-vm.ps1
+```
+
+En VM, pas de Vulkan ni de partage de tampons GPU : la session passe par `cage` en rendu logiciel
+(llvmpipe) au lieu de gamescope. C'est fluide mais gourmand en processeur ; les vraies performances
+(4K, FSR, ray tracing) se mesurent sur le matériel, depuis une clé USB.
+Journal de session dans la VM : `/home/player/.local/share/hearth/session.log`.

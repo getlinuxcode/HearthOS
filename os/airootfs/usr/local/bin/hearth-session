@@ -1,11 +1,31 @@
 #!/bin/bash
-# Session console : gamescope en plein écran sur le TTY, avec le shell Hearth dedans.
-# Lancé automatiquement à la connexion sur tty1 (voir /etc/skel/.bash_profile).
+# Session console : gamescope plein écran sur le TTY, avec l'interface Hearth dedans.
+# Lancée automatiquement à la connexion sur tty1 (voir /etc/skel/.bash_profile).
 
 DATA="$HOME/.local/share/hearth"
 mkdir -p "$DATA"
+LOG="$DATA/session.log"
+exec >>"$LOG" 2>&1
+echo "=== session $(date)"
+
 # Réglages d'affichage écrits par le daemon (Réglages → Affichage)
 [ -f "$DATA/display.env" ] && . "$DATA/display.env"
+
+export HEARTH_MODE
+[ -d /run/archiso ] && HEARTH_MODE=live || HEARTH_MODE=installed
+
+# Machine virtuelle : pas de Vulkan accéléré, gamescope ne peut pas afficher.
+# On passe directement par cage (compositeur kiosque wlroots, rendu OpenGL).
+if systemd-detect-virt -q; then
+  echo "machine virtuelle détectée : session cage"
+  export WLR_NO_HARDWARE_CURSORS=1
+  # Le pilote virtuel (vmwgfx) refuse le partage de tampons dmabuf entre clients et
+  # compositeur : on compose en logiciel et l'interface passe par X11 (Xwayland).
+  export WLR_RENDERER=pixman
+  export LIBGL_ALWAYS_SOFTWARE=1
+  export HEARTH_FORCE_X11=1
+  exec cage -s -- /usr/local/bin/hearth-inner
+fi
 
 ARGS=(-e -f)
 [ -n "${HEARTH_W:-}" ] && ARGS+=(-W "$HEARTH_W" -H "$HEARTH_H")
@@ -17,15 +37,9 @@ case "${HEARTH_UPSCALER:-off}" in
   nis) ARGS+=(-F nis) ;;
   integer) ARGS+=(-S integer) ;;
 esac
-# TODO : limite d'images par seconde (HEARTH_FPS_LIMIT) via mangoapp / gamescope.
-
-export HEARTH_MODE
-[ -d /run/archiso ] && HEARTH_MODE=live || HEARTH_MODE=installed
 
 if gamescope "${ARGS[@]}" -- /usr/local/bin/hearth-inner; then
   exit 0
 fi
-
-# Repli (machine virtuelle sans Vulkan accéléré, pilote absent) : compositeur kiosque minimal.
-echo "gamescope indisponible, repli sur cage" >&2
+echo "gamescope indisponible, repli sur cage"
 exec cage -s -- /usr/local/bin/hearth-inner

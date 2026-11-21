@@ -51,7 +51,7 @@ bluez
 bluez-utils
 
 # --- Manettes
-game-devices-udev
+# (règles udev des manettes : incluses dans systemd + steam ; game-devices-udev est dans l AUR)
 
 # --- Installateur
 archinstall

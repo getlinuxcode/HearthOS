@@ -43,6 +43,7 @@ func _ready() -> void:
 		var kv := a.trim_prefix("--").split("=", true, 1)
 		args[kv[0]] = kv[1] if kv.size() > 1 else "1"
 	_setup_input()
+	Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
 	sfx = Sfx.new()
 	add_child(sfx)
 	Input.joy_connection_changed.connect(func(_d, _c): pads_changed.emit())
@@ -401,6 +402,11 @@ func toast(text: String, icon_name := "check", color := Color("3ddc97")) -> void
 # ------------------------------------------------------------------ Entrées globales
 
 func _input(event: InputEvent) -> void:
+	# Console : le curseur disparaît dès qu'on joue à la manette ou au clavier.
+	if event is InputEventMouseMotion and event.relative.length() > 2.0:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif (event is InputEventJoypadButton or event is InputEventKey) and Input.mouse_mode != Input.MOUSE_MODE_HIDDEN:
+		Input.mouse_mode = Input.MOUSE_MODE_HIDDEN
 	if event is InputEventJoypadButton and event.pressed:
 		_set_family(Pads.identify(event.device).family)
 	elif event is InputEventJoypadMotion and absf(event.axis_value) > 0.6:

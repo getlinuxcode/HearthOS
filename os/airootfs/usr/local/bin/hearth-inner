@@ -1,5 +1,6 @@
 #!/bin/bash
-# Exécuté À L'INTÉRIEUR de gamescope : daemon (hérite du DISPLAY pour lancer Steam/RetroArch) + shell.
+# Exécuté À L'INTÉRIEUR du compositeur (gamescope ou cage) :
+# le daemon hérite de l'affichage pour lancer Steam / RetroArch, puis l'interface Godot démarre.
 node /opt/hearth/daemon/dist/server.js &
 DAEMON=$!
 trap 'kill $DAEMON 2>/dev/null' EXIT
@@ -7,5 +8,10 @@ for _ in $(seq 1 50); do
   curl -fs http://127.0.0.1:7300/api/system/info >/dev/null 2>&1 && break
   sleep 0.1
 done
-# Interface native : export Godot pour Linux (à produire avec les modèles d'export Godot).
-exec /opt/hearth/console/hearth.x86_64 --fullscreen
+
+GODOT=(/opt/hearth/godot --path /opt/hearth/console --fullscreen --rendering-driver opengl3)
+# Wayland natif si disponible, sinon X11 (Xwayland).
+if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -z "${HEARTH_FORCE_X11:-}" ]; then
+  "${GODOT[@]}" --display-driver wayland && exit 0
+fi
+exec "${GODOT[@]}" --display-driver x11

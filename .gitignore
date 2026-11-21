@@ -7,3 +7,4 @@ vm/
 .hearth-data/
 tools/
 console/.godot/
+vm-stage/

@@ -61,3 +61,8 @@ ntfs-3g
 btrfs-progs
 dosfstools
 efibootmgr
+
+# --- Epic Games (legendary)
+python
+python-requests
+python-filelock

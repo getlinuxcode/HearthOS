@@ -20,6 +20,8 @@ var info := {}
 var settings := {}
 var library: Array = []
 var account = null
+var epic_account = null
+var update_notified := ""
 var demo_library := true
 var network := {}
 var daemon_online := false
@@ -266,6 +268,7 @@ func load_library() -> void:
 	if lib is Dictionary and lib.has("games"):
 		library = lib.games
 		account = lib.get("account")
+		epic_account = lib.get("epic")
 		demo_library = lib.get("demo", false)
 	else:
 		library = []

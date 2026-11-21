@@ -30,7 +30,7 @@ void fragment() {
 }
 """
 
-const FILTERS := [["all", "Tous les jeux"], ["installed", "Installés"], ["steam", "Steam"], ["rom", "Rétro"]]
+const FILTERS := [["all", "Tous les jeux"], ["installed", "Installés"], ["steam", "Steam"], ["epic", "Epic"], ["rom", "Rétro"]]
 
 var _filter := 0
 var _games: Array = []
@@ -268,6 +268,7 @@ func default_focus() -> Control:
 func on_enter() -> void:
 	_render_tabs()
 	_rebuild()
+	_notify_update()
 
 
 func on_resume() -> void:
@@ -292,7 +293,7 @@ func _filtered() -> Array:
 	var f: String = FILTERS[_filter][0]
 	var out := []
 	for g in App.library:
-		if f == "all" or (f == "installed" and g.get("installed", false)) or (f == "steam" and g.source == "steam") or (f == "rom" and g.source == "rom"):
+		if f == "all" or (f == "installed" and g.get("installed", false)) or (f == "steam" and g.source == "steam") or (f == "epic" and g.source == "epic") or (f == "rom" and g.source == "rom"):
 			out.append(g)
 	return out
 
@@ -361,7 +362,7 @@ func _make_tile(g: Dictionary, i: int) -> Button:
 	name.offset_right = -14
 	var cover := TextureRect.new()
 	cover.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	cover.stretch_mode = TextureRect.STRETCH_SCALE if g.source == "steam" else TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	cover.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED if g.source == "rom" else TextureRect.STRETCH_SCALE
 	cover.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var mat := ShaderMaterial.new()
 	mat.shader = _round_shader
@@ -455,6 +456,8 @@ func _show_info(g: Dictionary, animate: bool) -> void:
 		c.queue_free()
 	if g.source == "steam":
 		_meta.add_child(_chip_icon(App.brand("steam", 30, Color.WHITE), "Steam"))
+	elif g.source == "epic":
+		_meta.add_child(_chip_icon(App.brand("epicgames", 30, Color.WHITE), "Epic Games"))
 	else:
 		_meta.add_child(_chip_icon(App.brand("retroarch", 30, Color.WHITE), "Rétro · %s" % str(g.get("system", "")).to_upper()))
 	_meta.add_child(_chip_icon(App.icon("timer", 30, UI.DIM), UI.fmt_playtime(g.get("playtimeMinutes", 0))))
@@ -543,3 +546,13 @@ func _open_details() -> void:
 		App.push(Store.StoreItem.new(int(g.appid)))
 	else:
 		App.toast("%s · %s" % [g.name, str(g.get("path", ""))], "folder", UI.ACCENT)
+
+
+## Annonce une mise à jour disponible (une fois par version).
+func _notify_update() -> void:
+	await get_tree().create_timer(3.0).timeout
+	var s = await App.api("GET", "/updates")
+	if s is Dictionary and s.get("state", "") == "available" and App.update_notified != s.available:
+		App.update_notified = s.available
+		App.sfx.play("open")
+		App.toast("Mise à jour %s disponible · Réglages → Mises à jour" % s.available, "download", UI.ACCENT)

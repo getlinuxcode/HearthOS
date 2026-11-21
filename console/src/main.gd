@@ -77,6 +77,7 @@ func _jump(scene: String) -> void:
 		"install": "res://src/screens/install.gd", "accounts": "res://src/screens/accounts.gd",
 		"qr": "res://src/screens/steam_qr.gd", "display": "res://src/screens/display.gd",
 		"done": "res://src/screens/done.gd", "settings": "res://src/screens/settings.gd",
+		"epic": "res://src/screens/epic_login.gd", "updates": "res://src/screens/settings.gd",
 		"emulators": "res://src/screens/emulators.gd", "store": "res://src/screens/store.gd",
 	}
 	if direct.has(scene):
@@ -85,6 +86,7 @@ func _jump(scene: String) -> void:
 			"install": App.push(scr.new(func(): pass))
 			"accounts": App.push(scr.new(true, func(): pass))
 			"display": App.push(scr.new(func(): pass))
+			"updates": App.push(scr.new("updates"))
 			_: App.push(scr.new())
 		return
 	match scene:

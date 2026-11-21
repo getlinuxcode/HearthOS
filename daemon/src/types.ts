@@ -124,7 +124,7 @@ export interface SteamLoginStatus {
   error?: string;
 }
 
-export type GameSource = 'steam' | 'rom';
+export type GameSource = 'steam' | 'rom' | 'epic';
 
 export interface Game {
   /** Identifiant global : "steam:570", "rom:<hash>" */
@@ -136,6 +136,8 @@ export interface Game {
   lastPlayed: number;
   /** Steam uniquement */
   appid?: number;
+  /** Epic uniquement (nom technique utilisé par legendary) */
+  appName?: string;
   /** ROM uniquement */
   system?: string;
   path?: string;
@@ -145,6 +147,7 @@ export interface Game {
 
 export interface Library {
   account?: SteamAccount;
+  epic?: { name: string };
   games: Game[];
   demo: boolean;
 }
@@ -201,6 +204,22 @@ export interface RomFolder {
   system: string;
   watching: boolean;
   romCount: number;
+}
+
+export interface UpdateStatus {
+  current: string;
+  channel: string;
+  state: 'idle' | 'checking' | 'uptodate' | 'available' | 'downloading' | 'installing' | 'ready' | 'error';
+  progress: number;
+  available?: string;
+  installed?: string;
+  notes?: string;
+  size?: number;
+  checkedAt?: number;
+  error?: string;
+  rollback?: string;
+  systemUpdatable: boolean;
+  system?: 'running' | 'done' | 'error';
 }
 
 export interface FtpStatus {

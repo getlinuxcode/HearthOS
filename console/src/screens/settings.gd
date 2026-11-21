@@ -11,7 +11,7 @@ const Display := preload("res://src/screens/display.gd")
 const CATS := [
 	["network", "Réseau", "wifi"], ["display", "Affichage", "tune"], ["pads", "Manettes", "sports_esports"],
 	["accounts", "Comptes", "person"], ["files", "Fichiers et FTP", "folder"], ["sound", "Son", "volume_up"],
-	["time", "Date et heure", "schedule"], ["system", "Système", "settings"], ["power", "Alimentation", "power_settings_new"],
+	["time", "Date et heure", "schedule"], ["updates", "Mises à jour", "refresh"], ["system", "Système", "settings"], ["power", "Alimentation", "power_settings_new"],
 ]
 const TIMEZONES := ["Europe/Paris", "Europe/Brussels", "Europe/Zurich", "America/Montreal", "Europe/London", "America/New_York", "Asia/Tokyo", "UTC"]
 
@@ -179,6 +179,7 @@ func _select(id: String) -> void:
 		"files": await _files()
 		"sound": _sound()
 		"time": _time()
+		"updates": await _updates()
 		"system": _system()
 		"power": _power()
 
@@ -445,3 +446,94 @@ class PadTest extends Control:
 		for b in [[JOY_BUTTON_BACK, pos.select], [JOY_BUTTON_START, pos.start], [JOY_BUTTON_GUIDE, pos.home]]:
 			if Input.is_joy_button_pressed(dev, b[0]):
 				draw_circle(at.call(b[1]), 10 * _scale, Color(hl, 0.9))
+
+
+# ------------------------------------------------------------------ Mises à jour
+
+var _upd_timer: Timer
+
+func _updates() -> void:
+	var s = await App.api("GET", "/updates")
+	if not (s is Dictionary) or s.has("_error"):
+		_rows.set_rows([{"kind": "info", "label": "Mises à jour", "value": "Service système injoignable"}])
+		return
+	var st: Dictionary = s
+	var state_txt: String = {
+		"idle": "Pas encore vérifié", "checking": "Recherche…", "uptodate": "À jour",
+		"available": "Version %s disponible" % st.get("available", ""), "downloading": "Téléchargement… %d %%" % st.progress,
+		"installing": "Installation…", "ready": "Version %s installée : redémarrez l'interface" % st.get("installed", ""),
+		"error": "Erreur : %s" % st.get("error", ""),
+	}.get(st.state, st.state)
+	var defs := [
+		{"kind": "info", "label": "Version actuelle", "value": st.current},
+		{"kind": "info", "label": "État", "value": state_txt},
+	]
+	match st.state:
+		"available":
+			if st.get("notes", "") != "":
+				defs.append({"kind": "info", "label": "Nouveautés", "value": st.notes})
+			var mb := " (%.1f Mo)" % (float(st.get("size", 0)) / 1048576.0) if st.get("size", 0) else ""
+			defs.append({"kind": "action", "label": "Installer la version %s%s" % [st.available, mb], "icon": "download",
+				"run": func():
+					var r = await App.api("POST", "/updates/install")
+					if r is Dictionary and r.has("_error"): App.toast(r._error, "close", UI.DANGER)
+					_select("updates")})
+		"ready":
+			defs.append({"kind": "action", "label": "Redémarrer l'interface maintenant", "icon": "refresh",
+				"run": func():
+					App.sfx.play("transition")
+					App.bg.blackout(1.0, 0.6)
+					await get_tree().create_timer(0.7).timeout
+					get_tree().quit()})
+		"downloading", "installing":
+			pass
+		_:
+			defs.append({"kind": "action", "label": "Rechercher une mise à jour", "icon": "refresh",
+				"run": func():
+					await App.api("POST", "/updates/check")
+					_select("updates")})
+	if st.get("rollback", null) != null and st.state != "downloading":
+		defs.append({"kind": "action", "label": "Revenir à la version %s" % st.rollback, "icon": "arrow_back",
+			"run": func():
+				await App.api("POST", "/updates/rollback")
+				App.toast("Retour en arrière prêt : redémarrez l'interface", "refresh", UI.ACCENT)
+				_select("updates")})
+	defs.append({"kind": "header", "label": "Système Arch Linux"})
+	if st.systemUpdatable:
+		defs.append({"kind": "action", "label": "Mettre à jour le système", "desc": "Noyau, pilotes, Steam, Proton… (instantané btrfs avant)", "icon": "download",
+			"run": func():
+				var r = await App.api("POST", "/updates/system")
+				App.toast(r._error if r is Dictionary and r.has("_error") else "Mise à jour du système lancée", "download", UI.ACCENT)
+				_select("updates")})
+		if st.get("system", "") != "":
+			defs.append({"kind": "info", "label": "Dernière mise à jour système", "value": {"running": "en cours…", "done": "terminée", "error": "échec"}.get(st.system, "")})
+	else:
+		defs.append({"kind": "info", "label": "Paquets du système", "value": "Disponible une fois Hearth installé sur le disque"})
+	defs.append({"kind": "header", "label": "Avancé"})
+	defs.append({"kind": "action", "label": "Canal de mise à jour", "desc": st.channel, "icon": "language",
+		"run": func():
+			var kb := preload("res://src/widgets/vkeyboard.gd").new("Adresse du manifeste (manifest.json)")
+			kb.value = st.channel
+			App.open_modal(kb)
+			var url = await kb.done
+			if url != null and str(url) != "":
+				var r = await App.api("POST", "/updates/channel", {"url": str(url)})
+				if r is Dictionary and r.has("_error"): App.toast(r._error, "close", UI.DANGER)
+			_select("updates")})
+	_rows.set_rows(defs)
+	# Rafraîchissement automatique pendant téléchargement / installation
+	if _upd_timer == null:
+		_upd_timer = Timer.new()
+		_upd_timer.wait_time = 1.0
+		_upd_timer.timeout.connect(func():
+			if _cat == "updates" and not _rows.is_ancestor_of(get_viewport().gui_get_focus_owner()):
+				_select("updates")
+			elif _cat == "updates":
+				var s2 = await App.api("GET", "/updates")
+				if s2 is Dictionary and s2.get("state", "") in ["downloading", "installing", "checking"] or (s2 is Dictionary and s2.get("state", "") != st.state):
+					_select("updates"))
+		add_child(_upd_timer)
+	if st.state in ["downloading", "installing", "checking"]:
+		_upd_timer.start()
+	else:
+		_upd_timer.stop()

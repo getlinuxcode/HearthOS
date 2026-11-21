@@ -70,7 +70,9 @@ func _render() -> void:
 	var acc = App.account
 	var steam_sub := "Connecté : %s" % acc.personaName if acc is Dictionary else "Connexion par QR code"
 	_grid.add_child(_card("steam", "Steam", steam_sub, Color("1b2838"), acc is Dictionary, _steam))
-	_grid.add_child(_card("epicgames", "Epic Games", "Bientôt · code d'appareil", Color("2a2a2a"), false, func(): App.toast("Epic Games arrive bientôt (connexion par code d'appareil)", "schedule", UI.ACCENT)))
+	var ep = App.epic_account
+	var epic_sub := "Connecté : %s" % ep.name if ep is Dictionary else "Connexion depuis le téléphone"
+	_grid.add_child(_card("epicgames", "Epic Games", epic_sub, Color("2a2a2a"), ep is Dictionary, _epic))
 	_grid.add_child(_card("gogdotcom", "GOG", "Bientôt", Color("5c2d91"), false, func(): App.toast("GOG arrive bientôt", "schedule", UI.ACCENT)))
 	await get_tree().process_frame
 	if _grid.get_child_count() > keep:
@@ -137,5 +139,21 @@ func _steam() -> void:
 
 func _logout() -> void:
 	await App.api("POST", "/steam/logout")
+	await App.load_library()
+	_render()
+
+
+func _epic() -> void:
+	if App.epic_account is Dictionary:
+		Dialog.open("Compte Epic Games", Dialog.text("Connecté en tant que %s." % App.epic_account.name), [
+			["Fermer", Callable(), "primary", "check"],
+			["Se déconnecter", _epic_logout, "danger", "logout"],
+		])
+	else:
+		App.push(load("res://src/screens/epic_login.gd").new())
+
+
+func _epic_logout() -> void:
+	await App.api("POST", "/epic/logout")
 	await App.load_library()
 	_render()

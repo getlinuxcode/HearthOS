@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { Mode } from './types.js';
 
 export const BRAND = 'Hearth';
-export const VERSION = '0.1.0-dev';
+
 export const PORT = Number(process.env.HEARTH_PORT ?? 7300);
 
 function detectMode(): Mode {
@@ -36,4 +36,18 @@ for (const d of [DATA_DIR, SHARE_DIR, ROMS_DIR, BIOS_DIR, path.join(SHARE_DIR, '
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+/** Version de l'application : fichier VERSION à la racine du paquet (dépôt, /opt/hearth ou release installée). */
+export const APP_ROOT = path.resolve(here, '../..');
+export const VERSION = (() => {
+  try {
+    return fs.readFileSync(path.join(APP_ROOT, 'VERSION'), 'utf8').trim();
+  } catch {
+    return '0.0.0-dev';
+  }
+})();
+
+/** Canal de mises à jour : manifeste publié dans les releases GitHub du projet. */
+export const UPDATE_URL =
+  process.env.HEARTH_UPDATE_URL ?? 'https://github.com/getlinuxcode/HearthOS/releases/latest/download/manifest.json';
 export const STATIC_DIR = process.env.HEARTH_STATIC ?? path.resolve(here, '../../shell/dist');

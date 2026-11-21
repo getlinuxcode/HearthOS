@@ -3,7 +3,9 @@ import http from 'node:http';
 import path from 'node:path';
 import { MOCK, MODE, PORT, STATIC_DIR, VERSION } from './config.js';
 import * as emu from './emulation/library.js';
+import * as epic from './epic.js';
 import * as ftp from './ftp.js';
+import * as updates from './updates.js';
 import { getSettings, updateSettings } from './settings.js';
 import * as steam from './steam.js';
 import { listDisks } from './system/disks.js';
@@ -59,11 +61,11 @@ route('POST', '/store/app/:appid/open', ({ params }) => (steam.openStore(Number(
 
 // ------------------------------------------------------------------ Bibliothèque unifiée
 route('GET', '/library', async (): Promise<Library> => {
-  const s = await steam.steamGames();
-  const games: Game[] = [...s.games, ...emu.games()].sort(
+  const [s, eg] = await Promise.all([steam.steamGames(), epic.games()]);
+  const games: Game[] = [...s.games, ...eg, ...emu.games()].sort(
     (a, b) => b.lastPlayed - a.lastPlayed || Number(b.installed) - Number(a.installed) || a.name.localeCompare(b.name),
   );
-  return { account: steam.account(), games, demo: s.demo };
+  return { account: steam.account(), epic: epic.account(), games, demo: s.demo };
 });
 route('POST', '/games/:id/launch', ({ params }) => {
   const [source, ref] = decodeURIComponent(params.id).split(/:(.*)/);
@@ -71,11 +73,16 @@ route('POST', '/games/:id/launch', ({ params }) => {
     steam.launch(Number(ref));
     return { simulated: false };
   }
+  if (source === 'epic') {
+    epic.launch(ref);
+    return { simulated: false };
+  }
   return emu.launchRom(decodeURIComponent(params.id));
 });
 route('POST', '/games/:id/install', ({ params }) => {
-  const [, appid] = decodeURIComponent(params.id).split(':');
-  steam.install(Number(appid));
+  const [source, ref] = decodeURIComponent(params.id).split(/:(.*)/);
+  if (source === 'epic') epic.install(ref);
+  else steam.install(Number(ref));
   return { ok: true };
 });
 
@@ -91,6 +98,20 @@ route('POST', '/emu/folders/:id', ({ params, body }) => emu.updateFolder(params.
 route('POST', '/emu/folders/:id/remove', ({ params }) => emu.removeFolder(params.id));
 route('POST', '/emu/rescan', () => (emu.rescan(), emu.listFolders()));
 route('GET', '/fs/browse', ({ query }) => emu.browse(query.get('path') ?? undefined));
+
+// ------------------------------------------------------------------ Epic Games
+route('POST', '/epic/login', () => epic.startLogin());
+route('GET', '/epic/login/status', () => epic.loginStatus());
+route('POST', '/epic/logout', () => (epic.logout(), { ok: true }));
+
+// ------------------------------------------------------------------ Mises à jour
+route('GET', '/updates', () => updates.getStatus());
+route('POST', '/updates/check', () => updates.check());
+route('POST', '/updates/install', () => updates.install());
+route('POST', '/updates/rollback', () => updates.rollback());
+route('POST', '/updates/channel', ({ body }) => updates.setChannel(String(body.url ?? '')));
+route('POST', '/updates/system', () => updates.systemUpdate());
+route('GET', '/updates/system/log', () => updates.systemUpdateLog());
 
 // ------------------------------------------------------------------ FTP
 route('GET', '/ftp', () => ftp.status());
@@ -148,6 +169,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 emu.init();
+updates.init();
 await ftp.init();
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`hearth-daemon ${VERSION} — mode ${MODE}${MOCK ? ' (mock système)' : ''} — http://127.0.0.1:${PORT}`);

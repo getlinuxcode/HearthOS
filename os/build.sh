@@ -42,6 +42,13 @@ find "$P/airootfs/usr/local/bin" "$P/airootfs/etc/skel" "$P/airootfs/etc/systemd
 APP="$P/airootfs/opt/hearth"
 mkdir -p "$APP/daemon" "$APP/console"
 
+cp "$ROOT/VERSION" "$APP/VERSION"
+
+echo "==> Epic Games : legendary"
+mkdir -p "$APP/bin"
+curl -fL -o "$APP/bin/legendary" https://github.com/derrod/legendary/releases/latest/download/legendary_linux_x64
+chmod +x "$APP/bin/legendary"
+
 echo "==> Service système (daemon Node)"
 rsync -a "$ROOT/daemon/dist/" "$APP/daemon/dist/"
 cp "$ROOT/daemon/package.json" "$APP/daemon/"
@@ -76,7 +83,7 @@ ln -sf /usr/lib/systemd/system/bluetooth.service "$WANTS/bluetooth.service"
 ln -sf /etc/systemd/system/hearth-live-setup.service "$WANTS/hearth-live-setup.service"
 
 echo "==> Permissions"
-sed -i '/^file_permissions=(/a\  ["/usr/local/bin/hearth-session"]="0:0:755"\n  ["/usr/local/bin/hearth-inner"]="0:0:755"\n  ["/usr/local/bin/hearth-live-setup"]="0:0:755"\n  ["/opt/hearth/godot"]="0:0:755"\n  ["/etc/sudoers.d/hearth-live"]="0:0:440"' "$P/profiledef.sh"
+sed -i '/^file_permissions=(/a\  ["/usr/local/bin/hearth-session"]="0:0:755"\n  ["/usr/local/bin/hearth-inner"]="0:0:755"\n  ["/usr/local/bin/hearth-live-setup"]="0:0:755"\n  ["/opt/hearth/godot"]="0:0:755"\n  ["/opt/hearth/bin/legendary"]="0:0:755"\n  ["/etc/sudoers.d/hearth-live"]="0:0:440"' "$P/profiledef.sh"
 
 echo "==> mkarchiso"
 mkarchiso -v -w "$WORK/work" -o "$OUT" "$P"

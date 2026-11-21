@@ -41,6 +41,24 @@ lancement animé · menu en jeu (bouton PS) · sons synthétisés propres.
 Contrôle de compilation de tous les scripts : `bash scripts/check-console.sh`.
 Crédits des ressources : [console/assets/CREDITS.md](console/assets/CREDITS.md).
 
+## Publier une mise à jour (sans refaire d'ISO)
+
+Les consoles installent les nouvelles versions de l'interface et du service depuis les **releases GitHub**
+de [getlinuxcode/HearthOS](https://github.com/getlinuxcode/HearthOS) : Réglages → Mises à jour (vérification
+automatique toutes les 6 h, notification sur l'accueil). Chaque archive est signée (Ed25519) : une console refuse
+toute mise à jour qui n'est pas signée par la clé du projet. Les versions précédentes restent disponibles pour revenir en arrière.
+
+Depuis n'importe quel PC qui a le dépôt, `gh` connecté au compte du projet et la clé de signature
+(`~/.hearth/update-signing-key.pem`, **à copier à la main, jamais à versionner**) :
+
+```powershell
+node scripts/publish-update.mjs --version 0.2.1 --notes "Ce qui change" --publish
+```
+
+Pour tester sans publier : `--base http://<IP du PC>:8787 --serve` (canal local ; VirtualBox 7 bloque `10.0.2.2`),
+puis Réglages → Mises à jour → Canal → `http://<IP du PC>:8787/manifest.json`.
+Les paquets Arch (noyau, pilotes, Steam…) se mettent à jour séparément depuis le même écran, une fois Hearth installé.
+
 ## ISO et VM (VirtualBox, sans WSL ni Docker)
 
 L'ISO est construite dans une VM Arch Linux temporaire (« Hearth-build »), puis démarrée dans la VM « Hearth ».

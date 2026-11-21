@@ -1,7 +1,17 @@
 #!/bin/bash
 # Exécuté À L'INTÉRIEUR du compositeur (gamescope ou cage) :
-# le daemon hérite de l'affichage pour lancer Steam / RetroArch, puis l'interface Godot démarre.
-node /opt/hearth/daemon/dist/server.js &
+# le daemon hérite de l'affichage pour lancer Steam / RetroArch / Epic, puis l'interface Godot démarre.
+#
+# Version de l'application : la dernière mise à jour installée (~/.local/share/hearth/current),
+# sinon la version d'origine livrée avec le système (/opt/hearth).
+APP=/opt/hearth
+CUR="$HOME/.local/share/hearth/current"
+if [ -f "$CUR/VERSION" ] && [ -d "$CUR/console" ] && [ -f "$CUR/daemon/dist/server.js" ]; then
+  APP="$CUR"
+fi
+echo "application : $APP ($(cat "$APP/VERSION" 2>/dev/null))"
+
+node "$APP/daemon/dist/server.js" &
 DAEMON=$!
 trap 'kill $DAEMON 2>/dev/null' EXIT
 for _ in $(seq 1 50); do
@@ -9,9 +19,11 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 
-GODOT=(/opt/hearth/godot --path /opt/hearth/console --fullscreen --rendering-driver opengl3)
+GODOT=(/opt/hearth/godot --path "$APP/console" --fullscreen --rendering-driver opengl3)
 # Wayland natif si disponible, sinon X11 (Xwayland).
 if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -z "${HEARTH_FORCE_X11:-}" ]; then
   "${GODOT[@]}" --display-driver wayland && exit 0
 fi
-exec "${GODOT[@]}" --display-driver x11
+"${GODOT[@]}" --display-driver x11
+# Quand l'interface se ferme (redémarrage après mise à jour), la session se termine
+# et la connexion automatique relance tout avec la nouvelle version.

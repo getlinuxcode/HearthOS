@@ -21,7 +21,9 @@ const args = Object.fromEntries(
   process.argv.slice(2).map((a, i, all) => (a.startsWith('--') ? [a.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : true] : [])).filter((x) => x.length),
 );
 
-const sh = (cmd, argv, opts = {}) => execFileSync(cmd, argv, { stdio: 'inherit', shell: process.platform === 'win32', ...opts });
+// Seul npm a besoin d'un shell sous Windows (npm.cmd) ; gh est un vrai exécutable : sans shell, les
+// arguments (notes avec espaces, accents…) sont transmis tels quels.
+const sh = (cmd, argv, opts = {}) => execFileSync(cmd, argv, { stdio: 'inherit', shell: process.platform === 'win32' && cmd === 'npm', ...opts });
 const step = (m) => console.log(`\n==> ${m}`);
 
 // ---------------------------------------------------------------- Version
@@ -90,7 +92,7 @@ console.log(`\n${archiveName}  ${(data.length / 1048576).toFixed(1)} Mo  sha256 
 if (args.publish) {
   step(`Release GitHub v${version} sur ${REPO}`);
   sh('gh', ['release', 'create', `v${version}`, archive, path.join(OUT, 'manifest.json'), '--repo', REPO, '--title', `Hearth ${version}`, '--notes', notes]);
-  console.log(`\nPubliée. Les consoles la proposeront dans Réglages → Système → Mises à jour.`);
+  console.log(`\nPubliée. Les consoles la proposeront dans Réglages → Mises à jour.`);
 }
 
 if (args.serve) {

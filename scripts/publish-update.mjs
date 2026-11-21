@@ -62,6 +62,23 @@ fs.cpSync(path.join(ROOT, 'daemon', 'dist'), path.join(STAGE, 'daemon', 'dist'),
 fs.copyFileSync(path.join(ROOT, 'daemon', 'package.json'), path.join(STAGE, 'daemon', 'package.json'));
 sh('npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: path.join(STAGE, 'daemon') });
 
+// Scripts système (session, lancement, installateur) : les consoles utilisent ceux de la mise à jour
+// à la place de ceux de l'ISO. Fins de ligne Unix obligatoires.
+fs.mkdirSync(path.join(STAGE, 'system'), { recursive: true });
+for (const s of ['hearth-session', 'hearth-inner', 'hearth-install']) {
+  const src = fs.readFileSync(path.join(ROOT, 'os', 'airootfs', 'usr', 'local', 'bin', s), 'utf8').replace(/\r\n/g, '\n');
+  fs.writeFileSync(path.join(STAGE, 'system', s), src);
+}
+fs.writeFileSync(path.join(STAGE, 'system', 'packages.txt'), fs.readFileSync(path.join(ROOT, 'os', 'update-packages.txt'), 'utf8').replace(/\r\n/g, '\n'));
+// Thème du menu de démarrage (utilisé par l'installateur livré)
+fs.cpSync(path.join(ROOT, 'os', 'airootfs', 'usr', 'share', 'hearth', 'grub'), path.join(STAGE, 'system', 'grub'), { recursive: true });
+
+// Moteur Godot (facultatif) : --engine <binaire Linux x86_64>
+if (typeof args.engine === 'string') {
+  fs.mkdirSync(path.join(STAGE, 'engine'), { recursive: true });
+  fs.copyFileSync(args.engine, path.join(STAGE, 'engine', 'godot'));
+}
+
 step('Archive');
 const archiveName = `hearth-${version}.tar.gz`;
 const archive = path.join(OUT, archiveName);

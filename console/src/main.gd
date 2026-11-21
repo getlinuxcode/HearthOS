@@ -89,6 +89,9 @@ func _jump(scene: String) -> void:
 			"updates": App.push(scr.new("updates"))
 			_: App.push(scr.new())
 		return
+	if scene == "grubbg":
+		_grub_background()
+		return
 	match scene:
 		"pad": App.push(PadConnect.new())
 		"network": App.push(Network.new())
@@ -173,3 +176,23 @@ func _screenshot(path: String, delay: float) -> void:
 	img.save_png(path)
 	print("capture : ", path)
 	get_tree().quit()
+
+
+## Fond du menu GRUB : ciel Hearth + logo en haut (le menu s'affiche dessous).
+func _grub_background() -> void:
+	App.hints.visible = false
+	var c := Control.new()
+	c.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	App.screen_layer.add_child(c)
+	var mark = Boot.Mark.new()
+	mark.trace = 1.0
+	mark.flame = 1.0
+	mark.glow = 1.0
+	mark.size = Vector2(170, 170)
+	mark.position = Vector2(960 - 85, 120)
+	c.add_child(mark)
+	var title := UI.label("H E A R T H", 64, 300)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.size = Vector2(1920, 80)
+	title.position = Vector2(0, 310)
+	c.add_child(title)

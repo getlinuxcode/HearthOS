@@ -5,6 +5,8 @@ import { BIOS_DIR, MOCK, ROMS_DIR } from '../config.js';
 import type { EmuSystem, Game, RomFolder } from '../types.js';
 import { HttpError, launchDetached, readJson, runRoot, sleep, writeJson } from '../util.js';
 import { accepts, byId, SYSTEMS, systemForExt, systemForFolderName, type SystemDef } from './systems.js';
+import { track } from '../running.js';
+import * as standalone from './standalone.js';
 
 const CORE_DIRS = ['/usr/lib/libretro', '/usr/lib64/libretro', path.join(process.env.HOME ?? '', '.config/retroarch/cores')];
 const RETROARCH_CFG = '/etc/hearth/retroarch.cfg';
@@ -84,7 +86,7 @@ function walk(dir: string, folder: FolderConf, inherited: SystemDef | undefined,
       system: sys.id,
       path: full,
       installed: true,
-      coverUrl: thumbUrl(sys, e.name),
+      coverUrl: sys.thumbs ? thumbUrl(sys, e.name) : undefined,
       playtimeMinutes: stats[id]?.playtimeMinutes ?? 0,
       lastPlayed: stats[id]?.lastPlayed ?? 0,
     });
@@ -190,8 +192,9 @@ function corePath(core: string): string | null {
   return null;
 }
 
-function coreInstalled(core: string) {
-  return MOCK ? mockCores.has(core) : corePath(core) !== null;
+function coreInstalled(s: SystemDef) {
+  if (s.standalone) return standalone.isInstalled(s.standalone);
+  return MOCK ? mockCores.has(s.core) : corePath(s.core) !== null;
 }
 
 export function systems(): EmuSystem[] {
@@ -205,7 +208,8 @@ export function systems(): EmuSystem[] {
     extensions: s.extensions,
     core: s.core,
     corePackage: s.corePackage,
-    coreInstalled: coreInstalled(s.core),
+    coreInstalled: coreInstalled(s),
+    standalone: s.standalone ? { name: standalone.STANDALONE[s.standalone].name, version: standalone.installedVersion(s.standalone) } : undefined,
     bios: s.bios?.map((file) => ({ file, present: fs.existsSync(path.join(BIOS_DIR, file)) })),
     romCount: counts.get(s.id) ?? 0,
   }));
@@ -214,6 +218,7 @@ export function systems(): EmuSystem[] {
 export async function installCore(systemId: string): Promise<void> {
   const sys = byId.get(systemId);
   if (!sys) throw new HttpError(404, 'Système inconnu');
+  if (sys.standalone) return standalone.install(sys.standalone);
   if (MOCK) {
     await sleep(2000);
     mockCores.add(sys.core);
@@ -237,6 +242,11 @@ export function launchRom(id: string): { simulated: boolean } {
   stats[id] = { playtimeMinutes: stats[id]?.playtimeMinutes ?? 0, lastPlayed: Date.now() };
   writeJson('rom-stats.json', stats);
   g.lastPlayed = Date.now();
+  if (sys.standalone) {
+    const child = standalone.launch(sys.standalone, g.path!);
+    if (child) track(id, child);
+    return { simulated: child === null };
+  }
   if (MOCK) {
     console.log(`[roms] simulation : retroarch -L ${sys.core} "${g.path}"`);
     return { simulated: true };
@@ -245,6 +255,7 @@ export function launchRom(id: string): { simulated: boolean } {
   if (!core) throw new HttpError(409, `Émulateur ${sys.short} non installé`);
   const args = ['-L', core, g.path!, '--fullscreen'];
   if (fs.existsSync(RETROARCH_CFG)) args.push('--appendconfig', RETROARCH_CFG);
-  launchDetached('retroarch', args);
+  const child = launchDetached('retroarch', args);
+  track(id, child);
   return { simulated: false };
 }

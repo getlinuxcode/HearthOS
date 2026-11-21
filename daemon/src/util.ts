@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,10 +27,11 @@ export function runRoot(cmd: string, args: string[], timeoutMs?: number): Promis
 }
 
 /** Lance un processus détaché (jeu, Steam, RetroArch). */
-export function launchDetached(cmd: string, args: string[]): void {
-  const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+export function launchDetached(cmd: string, args: string[], env?: Record<string, string>): ChildProcess {
+  const child = spawn(cmd, args, { detached: true, stdio: 'ignore', env: env ? { ...process.env, ...env } : process.env });
   child.on('error', (e) => console.error(`[launch] ${cmd}:`, e.message));
   child.unref();
+  return child;
 }
 
 export function openUri(uri: string): void {

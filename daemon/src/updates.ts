@@ -126,6 +126,7 @@ export async function install(): Promise<UpdateStatus> {
       fs.mkdirSync(dest, { recursive: true });
       await run('tar', ['-xzf', tmp, '-C', dest], 120_000);
       if (!fs.existsSync(path.join(dest, 'VERSION'))) throw new Error('Archive invalide (VERSION manquant)');
+      await installPackages(dest);
       switchCurrent(dest);
       prune();
       status = { ...status, state: 'ready', installed: m.version };
@@ -181,8 +182,11 @@ export function systemUpdate(): UpdateStatus {
   if (status.system === 'running') throw new HttpError(409, 'Mise à jour système déjà en cours');
   status = { ...status, system: 'running' };
   systemLog = [];
-  // Instantané btrfs avant mise à jour (si snapper est configuré), puis pacman.
-  const p = spawn('sudo', ['-n', 'sh', '-c', 'command -v snapper >/dev/null && snapper create -d "avant mise à jour Hearth"; pacman -Syu --noconfirm'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  // Instantané btrfs en lecture seule de / (sous-volume @snapshots), puis mise à jour des paquets.
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  const snap = spawn('sudo', ['-n', 'btrfs', 'subvolume', 'snapshot', '-r', '/', `/.snapshots/avant-maj-${stamp}`]);
+  const p = spawn('sudo', ['-n', 'pacman', '-Syu', '--noconfirm'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  snap.on('error', () => {});
   const onData = (b: Buffer) => {
     systemLog.push(...b.toString().split('\n').filter(Boolean));
     systemLog = systemLog.slice(-200);
@@ -204,4 +208,20 @@ export function init() {
   const tick = () => void check().catch(() => {});
   setTimeout(tick, 20_000);
   setInterval(tick, 6 * 3600_000);
+}
+
+/**
+ * Paquets Arch demandés par la mise à jour (system/packages.txt, un par ligne).
+ * Installés uniquement sur un système installé (sur la clé live, tout est en mémoire).
+ */
+async function installPackages(release: string): Promise<void> {
+  const file = path.join(release, 'system', 'packages.txt');
+  if (!fs.existsSync(file) || MODE !== 'installed' || MOCK) return;
+  const pkgs = fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .map((l) => l.replace(/#.*/, '').trim())
+    .filter((l) => /^[a-z0-9@._+-]+$/.test(l));
+  if (!pkgs.length) return;
+  await run('sudo', ['-n', 'pacman', '-S', '--needed', '--noconfirm', ...pkgs], 30 * 60_000);
 }

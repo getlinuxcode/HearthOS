@@ -28,7 +28,6 @@ void fragment() {
 }
 """
 
-const FPS_STEPS := [0, 30, 40, 60, 120]
 const VOL_STEPS := [100, 75, 50, 25, 0]
 
 var _blur: ColorRect
@@ -38,9 +37,7 @@ var _header: Control
 var _closing := false
 var _hold_t := -1.0
 var _quit_card: Button
-var _fps_i := 0
 var _vol_i := 0
-var _fsr := false
 var _detail: Label
 
 
@@ -77,8 +74,6 @@ func _ready() -> void:
 		["resume", "play_arrow", "Reprendre", "Retour au jeu"],
 		["home", "home", "Accueil", "Sans quitter"],
 		["shot", "photo_camera", "Capture", "Image de l'écran"],
-		["fps", "speed", "Images/s", "Illimité"],
-		["fsr", "tune", "FSR", "Désactivé"],
 		["vol", "volume_up", "Son", "100 %"],
 		["pad", "sports_esports", "Manette", pad_name],
 		["quit", "close", "Quitter", "Maintenir"],
@@ -99,6 +94,7 @@ func _ready() -> void:
 		tw.tween_property(c, "modulate:a", 1.0, 0.3).set_delay(0.03 * i)
 	App.quiet_focus(_cards[0])
 	_on_focus(0)
+	_load_volume()
 
 
 func _build_header() -> void:
@@ -216,8 +212,6 @@ func _on_focus(i: int) -> void:
 		"resume": "Fermer le menu et reprendre la partie.",
 		"home": "Revenir à l'accueil sans fermer le jeu.",
 		"shot": "Enregistrer une capture d'écran du jeu.",
-		"fps": "Limiter les images par seconde (moins de chaleur et de bruit).",
-		"fsr": "Upscaling AMD FSR par gamescope : plus d'images par seconde.",
 		"vol": "Volume général.",
 		"pad": "Manette utilisée par le joueur 1.",
 		"quit": "Maintenez le bouton de validation pour quitter le jeu.",
@@ -237,23 +231,17 @@ func _activate(id: String, b: Button) -> void:
 			close()
 			App.replace_all(Home.new())
 		"shot":
-			var flash := ColorRect.new()
-			flash.color = Color(1, 1, 1, 0.8)
-			flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			add_child(flash)
-			flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-			flash.create_tween().tween_property(flash, "color:a", 0.0, 0.5)
-			App.toast("Capture enregistrée (simulation)", "photo_camera", UI.ACCENT)
-		"fps":
-			_fps_i = (_fps_i + 1) % FPS_STEPS.size()
-			sub.text = "Illimité" if FPS_STEPS[_fps_i] == 0 else "%d i/s" % FPS_STEPS[_fps_i]
-		"fsr":
-			_fsr = not _fsr
-			sub.text = "Activé" if _fsr else "Désactivé"
+			# On ferme le menu d'abord : la capture montre le jeu, pas le menu.
+			close()
+			App.capture_screen()
 		"vol":
+			# Volume système réel (PipeWire)
 			_vol_i = (_vol_i + 1) % VOL_STEPS.size()
-			sub.text = "%d %%" % VOL_STEPS[_vol_i]
-			AudioServer.set_bus_volume_db(0, linear_to_db(maxf(VOL_STEPS[_vol_i] / 100.0, 0.001)))
+			var r = await App.api("POST", "/media/volume", {"volume": VOL_STEPS[_vol_i] / 100.0})
+			if r is Dictionary and r.has("_error"):
+				App.toast(r._error, "close", UI.DANGER)
+			else:
+				sub.text = "%d %%" % VOL_STEPS[_vol_i]
 		"pad":
 			var pads := Pads.connected()
 			if not pads.is_empty():
@@ -300,6 +288,7 @@ func _quit_game() -> void:
 	App.sfx.play("transition_back")
 	var name: String = App.running_game.name if App.running_game else ""
 	App.running_game = null
+	App.api("POST", "/games/stop")
 	close()
 	App.replace_all(Home.new())
 	App.toast("%s fermé" % name, "close", UI.DIM)
@@ -330,3 +319,19 @@ func close() -> void:
 
 func hints() -> Array:
 	return [["ui_accept", "Sélectionner"], ["guide", "Reprendre"], ["ui_cancel", "Fermer"]]
+
+
+## Affiche le volume système réel sur la carte « Son ».
+func _load_volume() -> void:
+	var r = await App.api("GET", "/media/volume")
+	if not (r is Dictionary) or r.has("_error"):
+		return
+	var pct := roundi(float(r.volume) * 100.0) if not r.get("muted", false) else 0
+	var best := 0
+	for i in VOL_STEPS.size():
+		if absi(VOL_STEPS[i] - pct) < absi(VOL_STEPS[best] - pct):
+			best = i
+	_vol_i = best
+	for c in _cards:
+		if c.get_meta("id") == "vol":
+			c.get_meta("sub").text = "%d %%" % pct

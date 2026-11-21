@@ -6,6 +6,11 @@
 # sinon la version d'origine livrée avec le système (/opt/hearth).
 APP=/opt/hearth
 CUR="$HOME/.local/share/hearth/current"
+# La mise à jour installée apporte sa propre version de ce script : on lui passe la main.
+if [ -z "${HEARTH_INNER_DELEGATED:-}" ] && [ -f "$CUR/system/hearth-inner" ]; then
+  export HEARTH_INNER_DELEGATED=1
+  exec bash "$CUR/system/hearth-inner"
+fi
 if [ -f "$CUR/VERSION" ] && [ -d "$CUR/console" ] && [ -f "$CUR/daemon/dist/server.js" ]; then
   APP="$CUR"
 fi
@@ -19,7 +24,10 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 
-GODOT=(/opt/hearth/godot --path "$APP/console" --fullscreen --rendering-driver opengl3)
+# Moteur : celui livré par la mise à jour s'il y en a un, sinon celui du système.
+ENGINE=/opt/hearth/godot
+[ -f "$APP/engine/godot" ] && chmod +x "$APP/engine/godot" 2>/dev/null; [ -x "$APP/engine/godot" ] && ENGINE="$APP/engine/godot"
+GODOT=("$ENGINE" --path "$APP/console" --fullscreen --rendering-driver opengl3)
 # Wayland natif si disponible, sinon X11 (Xwayland).
 if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -z "${HEARTH_FORCE_X11:-}" ]; then
   "${GODOT[@]}" --display-driver wayland && exit 0

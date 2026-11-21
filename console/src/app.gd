@@ -236,9 +236,9 @@ func steam_img(appid_v, kind: String) -> String:
 
 # ------------------------------------------------------------------ API daemon
 
-func api(method: String, path: String, body = null) -> Variant:
+func api(method: String, path: String, body = null, timeout := 15.0) -> Variant:
 	var req := HTTPRequest.new()
-	req.timeout = 15
+	req.timeout = timeout
 	add_child(req)
 	var m := HTTPClient.METHOD_POST if method == "POST" else HTTPClient.METHOD_GET
 	var payload := JSON.stringify(body if body != null else {}) if method == "POST" else ""
@@ -422,3 +422,15 @@ func _set_family(f: String) -> void:
 	if f != active_family:
 		active_family = f
 		glyphs_changed.emit()
+
+
+## Capture d'écran réelle (fichier dans files/captures, accessible par FTP).
+func capture_screen() -> void:
+	await get_tree().create_timer(0.7).timeout
+	var r = await api("POST", "/media/screenshot")
+	if r is Dictionary and r.has("_error"):
+		sfx.play("error")
+		toast(r._error, "close", Color("ff5d6c"))
+	elif r is Dictionary:
+		sfx.play("success")
+		toast("Capture enregistrée · files/captures/%s" % r.name, "photo_camera", Color("7c9cff"))

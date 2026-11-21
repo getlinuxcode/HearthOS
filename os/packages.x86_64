@@ -66,3 +66,15 @@ efibootmgr
 python
 python-requests
 python-filelock
+
+# --- Installation sur disque (hearth-install)
+grub
+os-prober
+jq
+rsync
+arch-install-scripts
+fontconfig
+
+# --- Captures d’écran et jeux Epic (Proton via umu)
+grim
+umu-launcher

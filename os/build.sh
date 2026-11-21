@@ -38,6 +38,7 @@ echo "==> Fichiers système (airootfs)"
 rsync -a "$ROOT/os/airootfs/" "$P/airootfs/"
 # Les fichiers venant de Windows peuvent avoir des fins de ligne CRLF.
 find "$P/airootfs/usr/local/bin" "$P/airootfs/etc/skel" "$P/airootfs/etc/systemd" "$P/airootfs/etc/sudoers.d" "$P/airootfs/etc/hearth" -type f -exec sed -i 's/\r$//' {} +
+find "$P/airootfs/usr/share/hearth" -name '*.txt' -exec sed -i 's/\r$//' {} +
 
 APP="$P/airootfs/opt/hearth"
 mkdir -p "$APP/daemon" "$APP/console"
@@ -83,7 +84,7 @@ ln -sf /usr/lib/systemd/system/bluetooth.service "$WANTS/bluetooth.service"
 ln -sf /etc/systemd/system/hearth-live-setup.service "$WANTS/hearth-live-setup.service"
 
 echo "==> Permissions"
-sed -i '/^file_permissions=(/a\  ["/usr/local/bin/hearth-session"]="0:0:755"\n  ["/usr/local/bin/hearth-inner"]="0:0:755"\n  ["/usr/local/bin/hearth-live-setup"]="0:0:755"\n  ["/opt/hearth/godot"]="0:0:755"\n  ["/opt/hearth/bin/legendary"]="0:0:755"\n  ["/etc/sudoers.d/hearth-live"]="0:0:440"' "$P/profiledef.sh"
+sed -i '/^file_permissions=(/a\  ["/usr/local/bin/hearth-session"]="0:0:755"\n  ["/usr/local/bin/hearth-inner"]="0:0:755"\n  ["/usr/local/bin/hearth-live-setup"]="0:0:755"\n  ["/usr/local/bin/hearth-install"]="0:0:755"\n  ["/opt/hearth/godot"]="0:0:755"\n  ["/opt/hearth/bin/legendary"]="0:0:755"\n  ["/etc/sudoers.d/hearth-live"]="0:0:440"' "$P/profiledef.sh"
 
 echo "==> mkarchiso"
 mkarchiso -v -w "$WORK/work" -o "$OUT" "$P"

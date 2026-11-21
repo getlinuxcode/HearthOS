@@ -177,7 +177,7 @@ func _select(id: String) -> void:
 		"pads": _pads()
 		"accounts": _accounts()
 		"files": await _files()
-		"sound": _sound()
+		"sound": await _sound()
 		"time": _time()
 		"updates": await _updates()
 		"system": _system()
@@ -238,7 +238,7 @@ func _pads() -> void:
 		{"kind": "action", "label": "Tester les vibrations", "icon": "speed",
 			"run": func():
 				for p in Pads.connected(): Input.start_joy_vibration(p.device, 0.6, 0.9, 0.6)},
-		{"kind": "action", "label": "Appairer une manette Bluetooth", "icon": "bluetooth", "run": _pair_help},
+		{"kind": "action", "label": "Appairer une manette Bluetooth", "desc": "Recherche des manettes à proximité", "icon": "bluetooth", "run": _bt_pair},
 		{"kind": "choice", "label": "Clavier virtuel", "options": [["azerty", "AZERTY"], ["qwerty", "QWERTY"]],
 			"get": func(): return App.settings.get("keyboardLayout", "azerty"),
 			"set": func(v): await _save({"keyboardLayout": v})},
@@ -314,6 +314,9 @@ func _files() -> void:
 
 
 func _sound() -> void:
+	# Volume système réel (PipeWire via le service)
+	var cur = await App.api("GET", "/media/volume")
+	var vol := [snappedf(float(cur.volume), 0.25) if cur is Dictionary and cur.has("volume") else 1.0]
 	_rows.set_rows([
 		{"kind": "toggle", "label": "Sons de l'interface",
 			"get": func(): return App.sfx.enabled,
@@ -321,11 +324,16 @@ func _sound() -> void:
 				App.sfx.enabled = v
 				if v: App.sfx.play("confirm")
 				await _save({"sounds": v})},
-		{"kind": "choice", "label": "Volume général", "options": [[1.0, "100 %"], [0.75, "75 %"], [0.5, "50 %"], [0.25, "25 %"]],
-			"get": func(): return snappedf(db_to_linear(AudioServer.get_bus_volume_db(0)), 0.25),
+		{"kind": "choice", "label": "Volume général", "desc": "Volume du système (jeux compris)",
+			"options": [[1.0, "100 %"], [0.75, "75 %"], [0.5, "50 %"], [0.25, "25 %"], [0.0, "Muet"]],
+			"get": func(): return vol[0],
 			"set": func(v):
-				AudioServer.set_bus_volume_db(0, linear_to_db(v))
-				App.sfx.play("tick")},
+				var r = await App.api("POST", "/media/volume", {"volume": v})
+				if r is Dictionary and r.has("_error"):
+					App.toast(r._error, "close", UI.DANGER)
+				else:
+					vol[0] = v
+					App.sfx.play("tick")},
 		{"kind": "info", "label": "Sortie audio", "value": "Automatique (PipeWire)"},
 	])
 
@@ -537,3 +545,51 @@ func _updates() -> void:
 		_upd_timer.start()
 	else:
 		_upd_timer.stop()
+
+
+# ------------------------------------------------------------------ Bluetooth (réel)
+
+func _bt_pair() -> void:
+	var a = await App.api("GET", "/bluetooth")
+	if not (a is Dictionary) or not a.get("present", false):
+		Dialog.open("Bluetooth", Dialog.text("Aucun adaptateur Bluetooth n'est détecté sur cette machine. Branchez la manette en USB, ou ajoutez un adaptateur Bluetooth."), [["Compris", Callable(), "primary", "check"]], 760)
+		return
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 14)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 14)
+	head.add_child(preload("res://src/widgets/anim_icon.gd").new("bt", "search", 48, UI.ACCENT))
+	var msg := Dialog.text("Mettez la manette en mode appairage (DualSense/DualShock : Create/Share + PS ; Xbox : bouton d'appairage). Recherche en cours…", 640)
+	head.add_child(msg)
+	box.add_child(head)
+	var list := Rows.new()
+	box.add_child(list)
+	var d = Dialog.open("Appairer une manette", box, [], 860)
+	var r = await App.api("POST", "/bluetooth/scan")
+	if not is_instance_valid(list):
+		return
+	if not (r is Array):
+		msg.text = r._error if r is Dictionary else "Recherche impossible"
+		return
+	if r.is_empty():
+		msg.text = "Aucun appareil trouvé. Vérifiez le mode appairage puis relancez la recherche."
+		return
+	msg.text = "Choisissez votre manette :"
+	var defs := []
+	for dev in r:
+		var mac: String = dev.mac
+		var nm: String = dev.name
+		defs.append({"kind": "action", "label": nm, "desc": mac + (" · déjà appairée" if dev.paired else ""), "icon": "sports_esports",
+			"run": func():
+				msg.text = "Appairage de %s…" % nm
+				var p = await App.api("POST", "/bluetooth/pair", {"mac": mac})
+				if p is Dictionary and p.has("_error"):
+					App.toast(p._error, "close", UI.DANGER)
+					msg.text = p._error
+				else:
+					App.sfx.play("pad")
+					App.toast("%s appairée" % nm, "check")
+					d.close()})
+	list.set_rows(defs)
+	await get_tree().process_frame
+	App.quiet_focus(list.first_focusable())

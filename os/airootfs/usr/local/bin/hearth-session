@@ -4,6 +4,13 @@
 
 DATA="$HOME/.local/share/hearth"
 mkdir -p "$DATA"
+
+# Une mise à jour installée apporte sa propre version de ce script : on lui passe la main.
+# (Ainsi l'ISO n'a jamais besoin d'être refaite pour faire évoluer la session.)
+if [ -z "${HEARTH_DELEGATED:-}" ] && [ -f "$DATA/current/system/hearth-session" ]; then
+  export HEARTH_DELEGATED=1
+  exec bash "$DATA/current/system/hearth-session"
+fi
 LOG="$DATA/session.log"
 exec >>"$LOG" 2>&1
 echo "=== session $(date)"

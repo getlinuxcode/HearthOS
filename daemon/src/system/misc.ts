@@ -1,8 +1,10 @@
+import fs from 'node:fs';
 import os from 'node:os';
 import { MOCK, MODE, VERSION } from '../config.js';
 import type { DisplayInfo, SystemInfo } from '../types.js';
 import { HttpError, run } from '../util.js';
 import { listDisks } from './disks.js';
+import { connectedModes } from './edid.js';
 
 let gpuCache: string[] | null = null;
 
@@ -42,7 +44,11 @@ export async function systemInfo(): Promise<SystemInfo> {
 }
 
 export function displayInfo(): DisplayInfo {
-  // TODO(phase 2) : lire les modes réels (EDID via /sys/class/drm + gamescope).
+  if (!MOCK) {
+    const real = connectedModes();
+    if (real) return { output: real.output, modes: real.modes, simulated: false };
+  }
+  // Développement (Windows) : modes d'exemple.
   return {
     output: 'HDMI-A-1',
     simulated: true,
@@ -68,9 +74,15 @@ export async function power(action: PowerAction): Promise<{ simulated: boolean }
     case 'suspend':
       await run('systemctl', [action]);
       break;
-    case 'reboot-windows':
-      await run('systemctl', ['reboot', '--boot-loader-entry=auto-windows']);
+    case 'reboot-windows': {
+      // GRUB : on choisit l'entrée Windows pour le prochain démarrage seulement, puis on redémarre.
+      const cfg = fs.existsSync('/boot/grub/grub.cfg') ? fs.readFileSync('/boot/grub/grub.cfg', 'utf8') : '';
+      const entry = cfg.match(/menuentry '([^']*Windows[^']*)'/)?.[1];
+      if (!entry) throw new HttpError(404, 'Windows introuvable dans le menu de démarrage');
+      await run('sudo', ['-n', 'grub-reboot', entry]);
+      await run('systemctl', ['reboot']);
       break;
+    }
     default:
       throw new HttpError(400, 'Action inconnue');
   }

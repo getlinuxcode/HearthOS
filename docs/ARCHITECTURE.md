@@ -17,8 +17,8 @@ tout se fait à la manette, sur une TV.
 | Proton | **Proton-CachyOS** par défaut, **Proton-GE**, Proton Experimental | Choix par jeu. `umu-launcher` pour les jeux hors Steam (Epic, GOG). |
 | Interface (« shell ») | **Godot 4** (`console/`), rendu GPU natif (OpenGL / Vulkan), aucun navigateur | Fond vivant en shader, particules, animations à ressort, manettes gérées nativement (base SDL), sons synthétisés. Tourne aussi en VM (rendu logiciel). L ancien prototype web (`shell/`) est abandonné. |
 | Daemon | **Node.js / TypeScript**, HTTP local `127.0.0.1:7300` | Partage les types avec l'interface. `steam-session` (connexion Steam par QR code) n'existe de façon fiable qu'en Node. Tourne **dans la session utilisateur** (il hérite du `DISPLAY` de gamescope pour lancer Steam) ; les actions root passent par `sudo -n` / polkit. |
-| Installateur | Interface maison (manette) + **archinstall** en backend | On ne réécrit pas le partitionnement ; on génère une config archinstall. |
-| Chargeur de démarrage | **systemd-boot** | Détecte Windows Boot Manager tout seul ; « Redémarrer sous Windows » = `systemctl reboot --boot-loader-entry=auto-windows`. |
+| Installateur | Interface maison (manette) + script `hearth-install` (root) | Le système de la clé, déjà complet, est recopié sur le disque (comme Calamares chez EndeavourOS/Manjaro) : installation hors ligne en quelques minutes. |
+| Chargeur de démarrage | **GRUB** + os-prober, thème Hearth | Menu de démarrage multi-systèmes (Windows et autres Linux détectés) ; « Redémarrer sous Windows » = `grub-reboot` sur l'entrée Windows. |
 | Émulation | **Cœurs libretro** lancés par RetroArch en mode sans interface | « Seulement le moteur » : RetroArch démarre directement le jeu (`-L cœur rom --fullscreen`), menu désactivé. C'est notre interface qui gère bibliothèque, dossiers, jaquettes. |
 | Transfert de fichiers | **Serveur FTP** intégré au daemon (activable dans Réglages) + Samba à venir | FTP : marche avec n'importe quel client (FileZilla, explorateur Windows). Samba plus tard pour un dossier réseau natif sous Windows. |
 
@@ -31,7 +31,7 @@ tout se fait à la manette, sur une TV.
 │                        ├─ emulation  : dossiers ROM surveillés, systèmes, cœurs    │
 │                        ├─ ftp        : serveur FTP activable                       │
 │                        ├─ network    : NetworkManager (nmcli)                      │
-│                        ├─ disks/install : lsblk, parted, ntfsresize, archinstall   │
+│                        ├─ disks/install : lsblk, parted, ntfsresize, hearth-install│
 │                        ├─ display    : écrit display.env lu par la session          │
 │                        └─ power      : systemctl (veille, reboot, Windows)          │
 │  Steam (-silent), jeux Proton, RetroArch (cœurs libretro)                           │
@@ -68,6 +68,11 @@ système (disques, Wi-Fi, alimentation). Steam, la boutique, le FTP et le scan d
 
 - **Systèmes** déclarés dans `daemon/src/emulation/systems.ts` : extensions → système → cœur libretro
   (ex. `.sfc` → SNES → `snes9x`).
+- **Switch / Switch 2** : émulateurs autonomes (`daemon/src/emulation/standalone.ts`). Eden et Eden-NX2 ne sont pas
+  dans les dépôts Arch : leur AppImage Linux officielle est téléchargée à la demande (Paramètres → Émulateurs),
+  puis lancée en `-f -g jeu`. Aucune clé ni firmware n'est fourni : le joueur dépose `prod.keys` et `firmware/`
+  extraits de sa console dans `bios/switch/` ou `bios/switch2/`, copiés au lancement. Les jeux Switch 2 vont dans
+  `roms/switch2/` (mêmes extensions que la Switch).
 - **Dossiers ROM** : l'utilisateur ajoute un dossier (« ce dossier contient mes jeux SNES » ou « détecte
   automatiquement »). Le daemon le scanne puis le **surveille** (`fs.watch`) : un fichier déposé par
   FTP apparaît dans la bibliothèque sans action.
@@ -79,12 +84,21 @@ système (disques, Wi-Fi, alimentation). Steam, la boutique, le FTP et le scan d
 ## 6. Installateur (live USB)
 
 1. Choix du disque (le média USB de démarrage est exclu).
-2. Mode : **à côté de Windows** (réduction NTFS + curseur de taille), **espace libre**, ou **disque entier**.
-3. Récapitulatif + confirmation **en maintenant Ⓐ 3 secondes** (pas d'effacement par erreur).
-4. Exécution : `ntfsresize` → `sgdisk` → btrfs (sous-volumes + snapshots) → archinstall → linux-cachyos → systemd-boot.
+2. Mode : **disque entier**, **à côté de Windows** (réduction NTFS + curseur de taille), **espace libre**,
+   ou **manuel** (rôle de chaque partition : système Hearth formatée, EFI réutilisée ou formatée).
+3. Récapitulatif + confirmation **en maintenant Ⓐ** (pas d'effacement par erreur).
+4. `os/airootfs/usr/local/bin/hearth-install` : partitions (`sgdisk`, `ntfsresize`) → btrfs (`@`, `@home`,
+   `@snapshots`, `@log`, zstd) → copie du système de la clé (`rsync`) → noyau, initramfs, compte `player`,
+   reprise des comptes Steam / Epic, du Wi-Fi et des réglages de la session live → GRUB (UEFI ou BIOS) + os-prober.
 
-Garde-fous à implémenter avant le vrai branchement : détection de **BitLocker**, de l'**hibernation /
-démarrage rapide** Windows (NTFS non sûr à redimensionner), vérification `ntfsresize --no-action`.
+Garde-fous en place : BitLocker détecté (refus), Windows mal arrêté / hibernation / démarrage rapide refusés
+(`ntfsresize --info`), test à blanc `--no-action` avant réduction, 20 Go laissés libres à Windows, la clé USB
+n'est jamais une cible, anciennes entrées UEFI « Hearth » remplacées, chemin de secours UEFI posé seulement
+s'il est libre (celui de Windows n'est jamais écrasé).
+
+Testé en VM (UEFI) : disque entier, à côté d'un « Windows » NTFS (données vérifiées intactes), manuel.
+Pas encore testé : vrai Windows (os-prober), démarrage BIOS, disques NVMe réels.
+Noyau : `linux` d'Arch (celui de la clé) ; linux-cachyos reste prévu.
 
 ## 7. Risques / sujets de R&D
 

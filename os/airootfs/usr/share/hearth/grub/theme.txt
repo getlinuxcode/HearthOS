@@ -1,0 +1,49 @@
+# Thème GRUB de Hearth : fond du ciel Hearth (rendu par l'interface), menu centré sous le logo.
+# Polices générées à l'installation par hearth-install (grub-mkfont -n "Hearth <style> <taille>").
+title-text: ""
+desktop-image: "background.png"
+desktop-color: "#05070d"
+terminal-font: "Hearth Regular 20"
+terminal-left: "10%"
+terminal-top: "10%"
+terminal-width: "80%"
+terminal-height: "80%"
+
++ boot_menu {
+  left = 30%
+  top = 45%
+  width = 40%
+  height = 34%
+  item_font = "Hearth Regular 28"
+  selected_item_font = "Hearth Bold 28"
+  item_color = "#98a1b8"
+  selected_item_color = "#ffffff"
+  item_height = 58
+  item_padding = 18
+  item_spacing = 10
+  icon_width = 0
+  icon_height = 0
+  scrollbar = false
+}
+
++ progress_bar {
+  id = "__timeout__"
+  left = 38%
+  top = 86%
+  width = 24%
+  height = 6
+  fg_color = "#7c9cff"
+  bg_color = "#1b2238"
+  border_color = "#1b2238"
+  text = ""
+}
+
++ label {
+  left = 0
+  top = 89%
+  width = 100%
+  align = "center"
+  font = "Hearth Regular 20"
+  color = "#98a1b8"
+  text = "Flèches pour choisir · Entrée pour démarrer"
+}

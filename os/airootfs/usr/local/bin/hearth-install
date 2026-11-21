@@ -1,0 +1,304 @@
+#!/bin/bash
+# Installe Hearth sur le disque depuis la clé live.  Usage : hearth-install <plan.json>
+#
+# Plan (JSON) :
+#   mode   : "erase" (tout le disque) | "alongside" (réduit une partition NTFS) | "free" (espace libre) | "manual"
+#   disk   : /dev/xxx
+#   sizeGB : taille donnée à Hearth (alongside / free)
+#   shrinkPartition : partition NTFS à réduire (alongside)
+#   manual : { "root": "/dev/xxxN", "efi": "/dev/xxxM", "formatEfi": false } (manual)
+#   timezone, keymap, hostname (facultatifs)
+#
+# Méthode : le système de la clé (déjà complet : pilotes, Steam, interface…) est recopié sur le disque,
+# sans téléchargement ; puis noyau, initramfs, compte « player » et menu de démarrage GRUB (os-prober).
+# Sortie : lignes « ##PROGRESS <pourcentage> <étape> » et « ##ERROR <message> » lues par le service.
+set -Eeuo pipefail
+
+PLAN="${1:?plan manquant}"
+TARGET=/mnt/hearth-target
+LOWER=/run/archiso/airootfs
+BOOTMNT=/run/archiso/bootmnt
+GB=$((1024 * 1024 * 1024))
+
+progress() { echo "##PROGRESS $1 $2"; }
+fail() { echo "##ERROR $*"; exit 1; }
+j() { jq -r "$1 // empty" "$PLAN"; }
+
+cleanup() {
+  sync || true
+  umount -R "$TARGET" 2>/dev/null || true
+}
+trap 'echo "##ERROR Échec inattendu (ligne $LINENO) : voir /var/log/hearth-install.log"; cleanup' ERR
+exec 2> >(tee -a /var/log/hearth-install.log >&2)
+
+[ "$(id -u)" = 0 ] || fail "L'installation doit être lancée en root"
+[ -d "$LOWER" ] || fail "Installation possible uniquement depuis la clé USB Hearth"
+command -v jq >/dev/null || fail "jq manquant"
+
+MODE=$(j .mode)
+DISK=$(j .disk)
+SIZE_GB=$(j .sizeGB)
+TZ_NAME=$(j .timezone); TZ_NAME=${TZ_NAME:-Europe/Paris}
+KEYMAP=$(j .keymap); KEYMAP=${KEYMAP:-fr}
+HOST=$(j .hostname); HOST=${HOST:-hearth}
+
+UEFI=0
+[ -d /sys/firmware/efi ] && UEFI=1
+
+# Chemin de la N-ième partition d'un disque (sda1, nvme0n1p1, mmcblk0p1…)
+part() { if [[ "$1" =~ [0-9]$ ]]; then echo "${1}p$2"; else echo "${1}$2"; fi; }
+settle() { partprobe "$DISK" 2>/dev/null || true; udevadm settle; sleep 1; }
+esp_of() { lsblk -nrpo PATH,PARTTYPE "$1" | awk 'tolower($2)=="c12a7328-f81f-11d2-ba4b-00a0c93ec93b"{print $1; exit}'; }
+by_label() { lsblk -nrpo PATH,PARTLABEL "$DISK" | awk -v l="$1" '$2==l{print $1}' | tail -1; }
+
+# ------------------------------------------------------------------ Vérifications
+progress 2 "Vérification du plan"
+[ -b "$DISK" ] || fail "Disque introuvable : $DISK"
+BOOTDEV=$(findmnt -nro SOURCE "$BOOTMNT" 2>/dev/null || true)
+if [ -n "$BOOTDEV" ]; then
+  BOOTDISK="/dev/$(lsblk -nro PKNAME "$BOOTDEV" | head -1)"
+  [ "$BOOTDISK" != "$DISK" ] || fail "Impossible d'installer sur la clé USB de démarrage"
+fi
+# Rien du disque cible ne doit être monté
+for p in $(lsblk -nrpo PATH "$DISK"); do
+  swapoff "$p" 2>/dev/null || true
+  umount "$p" 2>/dev/null || true
+done
+mkdir -p "$TARGET"
+
+EFI=""
+FORMAT_EFI=0
+ROOT=""
+
+case "$MODE" in
+  # ---------------------------------------------------------------- Tout le disque
+  erase)
+    progress 5 "Effacement du disque"
+    wipefs -af "$DISK" >/dev/null
+    sgdisk --zap-all "$DISK" >/dev/null
+    if [ "$UEFI" = 1 ]; then
+      sgdisk -n1:0:+1G -t1:ef00 -c1:EFI -n2:0:0 -t2:8304 -c2:Hearth "$DISK" >/dev/null
+      EFI=$(part "$DISK" 1); FORMAT_EFI=1
+    else
+      sgdisk -n1:0:+1M -t1:ef02 -c1:BIOS -n2:0:0 -t2:8304 -c2:Hearth "$DISK" >/dev/null
+    fi
+    settle
+    ROOT=$(part "$DISK" 2)
+    ;;
+
+  # ---------------------------------------------------------------- À côté de Windows
+  alongside)
+    WIN=$(j .shrinkPartition)
+    [ -b "$WIN" ] || fail "Partition à réduire introuvable"
+    [ "$(lsblk -nro FSTYPE "$WIN")" = ntfs ] || fail "Seules les partitions Windows (NTFS) peuvent être réduites ; utilisez l'espace libre ou le mode manuel"
+    progress 4 "Vérification de Windows"
+    if ! ntfsresize --info "$WIN" >/tmp/ntfsinfo 2>&1; then
+      fail "Windows n'a pas été arrêté proprement (démarrage rapide, hibernation ou disque à vérifier). Dans Windows : désactivez le démarrage rapide, lancez « chkdsk /f », puis faites « Arrêter » (pas « Redémarrer »)."
+    fi
+    MIN=$(sed -n 's/.*You might resize at \([0-9]*\) bytes.*/\1/p' /tmp/ntfsinfo)
+    CUR=$(blockdev --getsize64 "$WIN")
+    WANT=$((SIZE_GB * GB))
+    NEW=$(( (CUR - WANT) / 1048576 * 1048576 ))
+    [ -n "$MIN" ] || fail "Taille minimale de Windows inconnue"
+    [ "$NEW" -gt $((MIN + 20 * GB)) ] || fail "Pas assez de place : Windows doit garder au moins 20 Go libres"
+    ntfsresize --no-action --size "$NEW" "$WIN" >/dev/null 2>&1 || fail "Test de réduction refusé par ntfsresize"
+    progress 7 "Réduction de la partition Windows (peut prendre quelques minutes)"
+    printf 'y\n' | ntfsresize --no-progress-bar --size "$NEW" "$WIN" >>/var/log/hearth-install.log 2>&1 || fail "La réduction de Windows a échoué : rien n'a été modifié dans la table des partitions"
+    # La table GPT : on recrée l'entrée de Windows plus courte, à l'identique (début, type, GUID, nom).
+    NUM=$(cat "/sys/class/block/$(basename "$WIN")/partition")
+    INFO=$(sgdisk -i "$NUM" "$DISK")
+    START=$(echo "$INFO" | sed -n 's/^First sector: \([0-9]*\).*/\1/p')
+    TYPE=$(echo "$INFO" | sed -n 's/^Partition GUID code: \([0-9A-Fa-f-]*\).*/\1/p')
+    UUID=$(echo "$INFO" | sed -n 's/^Partition unique GUID: \([0-9A-Fa-f-]*\).*/\1/p')
+    NAME=$(echo "$INFO" | sed -n "s/^Partition name: '\(.*\)'/\1/p")
+    SS=$(blockdev --getss "$DISK")
+    sgdisk -d "$NUM" -n "$NUM:$START:+$((NEW / SS))" -t "$NUM:$TYPE" -u "$NUM:$UUID" -c "$NUM:$NAME" "$DISK" >/dev/null
+    settle
+    ;&  # on enchaîne sur la création des partitions dans l'espace libéré
+
+  # ---------------------------------------------------------------- Espace libre
+  free)
+    EFI=$(esp_of "$DISK")
+    if [ "$UEFI" = 1 ] && [ -z "$EFI" ]; then
+      sgdisk -n0:0:+512M -t0:ef00 -c0:EFI "$DISK" >/dev/null
+      settle
+      EFI=$(by_label EFI); FORMAT_EFI=1
+    fi
+    progress 12 "Création de la partition Hearth"
+    sgdisk -n0:0:0 -t0:8304 -c0:Hearth "$DISK" >/dev/null
+    settle
+    ROOT=$(by_label Hearth)
+    ;;
+
+  # ---------------------------------------------------------------- Manuel
+  manual)
+    ROOT=$(j .manual.root)
+    EFI=$(j .manual.efi)
+    [ "$(j .manual.formatEfi)" = true ] && FORMAT_EFI=1
+    [ -b "$ROOT" ] || fail "Partition système introuvable"
+    if [ "$UEFI" = 1 ]; then [ -b "$EFI" ] || fail "Une partition EFI est nécessaire en mode UEFI"; fi
+    [ "$ROOT" != "$EFI" ] || fail "La partition système et la partition EFI doivent être différentes"
+    ;;
+  *) fail "Mode inconnu : $MODE" ;;
+esac
+
+[ -b "$ROOT" ] || fail "Partition système non créée"
+
+# ------------------------------------------------------------------ Formatage
+progress 16 "Formatage (btrfs, compression zstd)"
+wipefs -af "$ROOT" >/dev/null
+mkfs.btrfs -f -L Hearth "$ROOT" >/dev/null
+mount -t btrfs "$ROOT" "$TARGET"
+for sv in @ @home @snapshots @log; do btrfs subvolume create "$TARGET/$sv" >/dev/null; done
+umount "$TARGET"
+OPTS=noatime,compress=zstd:1
+mount -t btrfs -o "$OPTS,subvol=@" "$ROOT" "$TARGET"
+mkdir -p "$TARGET"/{home,.snapshots,var/log,boot}
+mount -t btrfs -o "$OPTS,subvol=@home" "$ROOT" "$TARGET/home"
+mount -t btrfs -o "$OPTS,subvol=@snapshots" "$ROOT" "$TARGET/.snapshots"
+mount -t btrfs -o "$OPTS,subvol=@log" "$ROOT" "$TARGET/var/log"
+if [ -n "$EFI" ]; then
+  if [ "$FORMAT_EFI" = 1 ]; then wipefs -af "$EFI" >/dev/null; mkfs.fat -F32 -n EFI "$EFI" >/dev/null; fi
+  udevadm settle
+  mkdir -p "$TARGET/boot/efi"
+  mount -t vfat "$EFI" "$TARGET/boot/efi"
+fi
+
+# ------------------------------------------------------------------ Copie du système
+progress 20 "Copie du système"
+TOTAL=$(du -sb --exclude=proc --exclude=sys --exclude=dev --exclude=run "$LOWER" 2>/dev/null | cut -f1)
+rsync -aAXH --numeric-ids --no-inc-recursive --info=progress2 --outbuf=L \
+  --exclude=/proc/* --exclude=/sys/* --exclude=/dev/* --exclude=/run/* --exclude=/tmp/* \
+  "$LOWER/" "$TARGET/" 2>>/var/log/hearth-install.log \
+  | stdbuf -oL tr '\r' '\n' | awk -v t="$TOTAL" '/%/ { gsub(/,/,"",$1); if (t>0) { p=int(20 + 55*$1/t); if (p!=last) { print "##PROGRESS " p " Copie du système"; fflush(); last=p } } }'
+
+progress 76 "Noyau et microcode"
+cp "$BOOTMNT"/arch/boot/x86_64/vmlinuz-linux "$TARGET/boot/"
+cp "$BOOTMNT"/arch/boot/*-ucode.img "$TARGET/boot/" 2>/dev/null || true
+
+# ------------------------------------------------------------------ Configuration
+progress 80 "Configuration du système"
+genfstab -U "$TARGET" > "$TARGET/etc/fstab"
+
+# Retrait de tout ce qui est propre à la clé live
+rm -f "$TARGET"/etc/mkinitcpio.conf.d/archiso.conf \
+      "$TARGET"/etc/systemd/system/multi-user.target.wants/hearth-live-setup.service \
+      "$TARGET"/etc/systemd/system/hearth-live-setup.service \
+      "$TARGET"/usr/local/bin/hearth-live-setup \
+      "$TARGET"/etc/sudoers.d/hearth-live \
+      "$TARGET"/etc/machine-id
+for unit in pacman-init.service etc-pacman.d-gnupg.mount choose-mirror.service livecd-talk.service livecd-alsa-unmuter.service; do
+  find "$TARGET/etc/systemd/system" -name "$unit" -delete 2>/dev/null || true
+done
+cat > "$TARGET/etc/mkinitcpio.d/linux.preset" <<'EOF'
+ALL_kver="/boot/vmlinuz-linux"
+PRESETS=('default' 'fallback')
+default_image="/boot/initramfs-linux.img"
+fallback_image="/boot/initramfs-linux-fallback.img"
+fallback_options="-S autodetect"
+EOF
+
+echo "$HOST" > "$TARGET/etc/hostname"
+printf '127.0.0.1 localhost\n::1 localhost\n127.0.1.1 %s\n' "$HOST" > "$TARGET/etc/hosts"
+ln -sf "/usr/share/zoneinfo/$TZ_NAME" "$TARGET/etc/localtime"
+sed -i 's/^#\(fr_FR.UTF-8 UTF-8\)/\1/; s/^#\(en_US.UTF-8 UTF-8\)/\1/' "$TARGET/etc/locale.gen"
+echo "LANG=fr_FR.UTF-8" > "$TARGET/etc/locale.conf"
+echo "KEYMAP=$KEYMAP" > "$TARGET/etc/vconsole.conf"
+
+# Droits du compte console : uniquement ce dont le service a besoin
+cat > "$TARGET/etc/sudoers.d/hearth" <<'EOF'
+player ALL=(root) NOPASSWD: /usr/bin/pacman, /usr/bin/btrfs, /usr/bin/grub-reboot, /usr/bin/timedatectl
+EOF
+chmod 440 "$TARGET/etc/sudoers.d/hearth"
+
+arch-chroot "$TARGET" /bin/bash -e <<CHROOT
+systemd-machine-id-setup >/dev/null
+locale-gen >/dev/null
+id player >/dev/null 2>&1 || useradd -m -G wheel,video,input,audio,render -s /bin/bash player
+passwd -d player >/dev/null
+passwd -l root >/dev/null
+pacman-key --init >/dev/null 2>&1
+pacman-key --populate archlinux >/dev/null 2>&1
+systemctl enable NetworkManager bluetooth >/dev/null 2>&1 || true
+CHROOT
+
+# Ce qui a été fait pendant l'essai sur la clé est conservé : comptes Steam / Epic, réglages, Wi-Fi.
+progress 84 "Reprise de vos comptes et réglages"
+if [ -d /home/player/.local/share/hearth ]; then
+  mkdir -p "$TARGET/home/player/.local/share"
+  # mises à jour comprises (releases/ et current) : le système installé démarre directement à jour
+  rsync -a --exclude=session.log /home/player/.local/share/hearth/ "$TARGET/home/player/.local/share/hearth/"
+fi
+[ -d /home/player/.config/legendary ] && mkdir -p "$TARGET/home/player/.config" && rsync -a /home/player/.config/legendary "$TARGET/home/player/.config/"
+cp -a /etc/NetworkManager/system-connections/. "$TARGET/etc/NetworkManager/system-connections/" 2>/dev/null || true
+arch-chroot "$TARGET" chown -R player:player /home/player
+
+progress 87 "Initramfs"
+arch-chroot "$TARGET" mkinitcpio -P >>/var/log/hearth-install.log 2>&1
+
+# ------------------------------------------------------------------ GRUB
+progress 92 "Menu de démarrage GRUB"
+G="$TARGET/etc/default/grub"
+set_grub() { if grep -q "^#\?$1=" "$G"; then sed -i "s|^#\?$1=.*|$1=$2|" "$G"; else echo "$1=$2" >> "$G"; fi; }
+set_grub GRUB_DISTRIBUTOR '"Hearth"'
+set_grub GRUB_TIMEOUT 5
+set_grub GRUB_TIMEOUT_STYLE menu
+set_grub GRUB_DEFAULT saved
+set_grub GRUB_DISABLE_OS_PROBER false
+set_grub GRUB_GFXMODE '"1920x1080,1280x720,auto"'
+set_grub GRUB_GFXPAYLOAD_LINUX keep
+set_grub GRUB_CMDLINE_LINUX_DEFAULT '"quiet loglevel=3 splash"'
+# Thème : celui livré avec ce script (mise à jour) sinon celui du système
+THEME_SRC="$(dirname "$(readlink -f "$0")")/grub"
+[ -f "$THEME_SRC/theme.txt" ] || THEME_SRC="$TARGET/usr/share/hearth/grub"
+if [ -f "$THEME_SRC/theme.txt" ]; then
+  mkdir -p "$TARGET/boot/grub/themes"
+  rm -rf "$TARGET/boot/grub/themes/hearth"; cp -r "$THEME_SRC" "$TARGET/boot/grub/themes/hearth"
+  # Polices du thème : nommées explicitement (« Hearth Regular 28 »…) pour ne pas dépendre du fichier source.
+  for f in "Regular:20" "Regular:28" "Bold:28" "Bold:44"; do
+    st=${f%%:*}; sz=${f##*:}
+    src=$(arch-chroot "$TARGET" fc-match -f '%{file}' "Noto Sans:style=$st" 2>/dev/null || true)
+    [ -n "$src" ] && arch-chroot "$TARGET" grub-mkfont -n "Hearth $st $sz" -s "$sz" -o "/boot/grub/themes/hearth/hearth-$st-$sz.pf2" "$src" 2>>/var/log/hearth-install.log || true
+  done
+  set_grub GRUB_THEME '"/boot/grub/themes/hearth/theme.txt"'
+fi
+
+if [ "$UEFI" = 1 ]; then
+  # Les anciennes entrées « Hearth » (installation précédente) pointent peut-être vers une partition disparue.
+  for b in $(efibootmgr | sed -n 's/^Boot\([0-9A-Fa-f]\{4\}\)\*\{0,1\} Hearth\b.*/\1/p'); do efibootmgr -q -b "$b" -B || true; done
+  arch-chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Hearth >>/var/log/hearth-install.log 2>&1 \
+    || fail "Installation de GRUB impossible"
+  # Vérifie l'entrée UEFI ; la crée si le firmware ne l'a pas enregistrée, puis la place en premier.
+  ESP_NUM=$(cat "/sys/class/block/$(basename "$EFI")/partition")
+  ESP_DISK="/dev/$(lsblk -nro PKNAME "$EFI" | head -1)"
+  ESP_GUID=$(lsblk -nro PARTUUID "$EFI" | head -1)
+  if ! efibootmgr | grep -i "Hearth" | grep -qi "$ESP_GUID"; then
+    efibootmgr -q --create --disk "$ESP_DISK" --part "$ESP_NUM" --loader '\EFI\Hearth\grubx64.efi' --label Hearth || true
+  fi
+  NEW=$(efibootmgr | grep -i "$ESP_GUID" | sed -n 's/^Boot\([0-9A-Fa-f]\{4\}\)\*\{0,1\} Hearth\b.*/\1/p' | head -1)
+  if [ -n "$NEW" ]; then
+    ORDER=$(efibootmgr | sed -n 's/^BootOrder: //p' | tr ',' '\n' | grep -vi "^$NEW$" | paste -sd, -)
+    efibootmgr -q -o "$NEW${ORDER:+,$ORDER}" || true
+  fi
+  # Chemin de secours standard (\EFI\BOOT\BOOTX64.EFI) : seulement s'il est libre, pour ne jamais
+  # écraser celui de Windows ; utile aux firmwares qui oublient les entrées UEFI.
+  if [ "$MODE" = erase ] || [ ! -e "$TARGET/boot/efi/EFI/BOOT/BOOTX64.EFI" ]; then
+    arch-chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory=/boot/efi --removable >>/var/log/hearth-install.log 2>&1 || true
+  fi
+else
+  arch-chroot "$TARGET" grub-install --target=i386-pc "$DISK" >>/var/log/hearth-install.log 2>&1 || fail "Installation de GRUB impossible"
+fi
+# Menu épuré : pas d'entrées techniques du firmware (« EFI BootNext », réglages UEFI) ;
+# os-prober ajoute Windows et les autres systèmes.
+for s in "$TARGET"/etc/grub.d/*; do
+  [ -f "$s" ] && grep -qE 'BootNext|fwsetup' "$s" && chmod -x "$s"
+done
+arch-chroot "$TARGET" grub-mkconfig -o /boot/grub/grub.cfg >>/var/log/hearth-install.log 2>&1
+arch-chroot "$TARGET" grub-set-default 0
+
+progress 98 "Finalisation"
+cp /var/log/hearth-install.log "$TARGET/var/log/" 2>/dev/null || true
+cleanup
+trap - ERR
+progress 100 "Installation terminée"
+echo "##DONE"

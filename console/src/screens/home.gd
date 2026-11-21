@@ -532,6 +532,16 @@ func _launch() -> void:
 	if _games.is_empty():
 		return
 	var g: Dictionary = _games[_focus_i]
+	# Jeu pas encore installé : on lance l'installation (Steam / Epic), pas le jeu.
+	if not g.get("installed", false) and not g.get("demo", false):
+		var r = await App.api("POST", "/games/%s/install" % str(g.id).uri_encode())
+		if r is Dictionary and r.has("_error"):
+			App.sfx.play("error")
+			App.toast(r._error, "close", UI.DANGER)
+		else:
+			App.sfx.play("confirm")
+			App.toast("Installation de %s lancée" % g.name, "download", UI.ACCENT)
+		return
 	var t := _tiles[_focus_i]
 	var l := Launch.new(g, Rect2(t.global_position, t.size))
 	App.root.add_child(l)

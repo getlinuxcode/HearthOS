@@ -256,7 +256,13 @@ function legendary(): string {
 
 export function launch(appName: string) {
   if (process.platform === 'win32') throw new HttpError(409, 'Lancement Epic disponible sur la console (Linux) uniquement');
-  launchDetached(legendary(), ['launch', appName]);
+  if (!installedAppNames().has(appName)) throw new HttpError(409, 'Jeu non installé : installez-le d’abord');
+  // Jeux Windows : lancés par umu-launcher avec GE-Proton (téléchargé automatiquement au premier lancement).
+  return launchDetached(legendary(), ['launch', appName, '--no-wine', '--wrapper', 'umu-run'], {
+    GAMEID: 'umu-0',
+    STORE: 'egs',
+    PROTONPATH: 'GE-Proton',
+  });
 }
 
 export function install(appName: string) {

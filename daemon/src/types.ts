@@ -68,6 +68,8 @@ export interface Partition {
   label?: string;
   os?: 'windows' | 'linux' | 'efi' | 'data';
   used?: number;
+  /** Partition chiffrée BitLocker (non réductible) */
+  bitlocker?: boolean;
 }
 
 export interface Disk {
@@ -83,12 +85,14 @@ export interface Disk {
   isBootMedia?: boolean;
 }
 
-export type InstallMode = 'alongside' | 'erase' | 'free';
+export type InstallMode = 'alongside' | 'erase' | 'free' | 'manual';
 
 export interface InstallPlan {
   disk: string;
   mode: InstallMode;
   sizeGB: number;
+  /** Mode manuel : partitions existantes à utiliser */
+  manual?: { root: string; efi?: string; formatEfi?: boolean };
 }
 
 export interface InstallProgress {
@@ -193,6 +197,8 @@ export interface EmuSystem {
   core: string;
   corePackage: string;
   coreInstalled: boolean;
+  /** Émulateur autonome téléchargé (Eden…) : nom et version installée */
+  standalone?: { name: string; version?: string };
   bios?: { file: string; present: boolean }[];
   romCount: number;
 }

@@ -6,6 +6,9 @@ import * as emu from './emulation/library.js';
 import * as epic from './epic.js';
 import * as ftp from './ftp.js';
 import * as updates from './updates.js';
+import * as running from './running.js';
+import * as media from './system/media.js';
+import * as bluetooth from './system/bluetooth.js';
 import { getSettings, updateSettings } from './settings.js';
 import * as steam from './steam.js';
 import { listDisks } from './system/disks.js';
@@ -29,7 +32,10 @@ function route(method: string, pattern: string, h: Handler) {
 // ------------------------------------------------------------------ Système
 route('GET', '/system/info', () => systemInfo());
 route('GET', '/settings', () => getSettings());
-route('POST', '/settings', ({ body }) => updateSettings(body));
+route('POST', '/settings', async ({ body }) => {
+  if (typeof body.timezone === 'string' && body.timezone !== getSettings().timezone) await media.setTimezone(body.timezone);
+  return updateSettings(body);
+});
 route('POST', '/power/:action', ({ params }) => power(params.action as PowerAction));
 route('GET', '/display', () => displayInfo());
 route('GET', '/qr', async ({ query }) => ({ svg: await QRCode.toString(query.get('text') ?? '', { type: 'svg', margin: 1 }) }));
@@ -45,6 +51,7 @@ route('POST', '/network/wifi/connect', async ({ body }) => {
 // ------------------------------------------------------------------ Installation
 route('GET', '/disks', () => listDisks());
 route('GET', '/install/progress', () => install.getProgress());
+route('GET', '/install/log', () => install.log());
 route('POST', '/install/start', async ({ body }) => {
   await install.start(body);
   return install.getProgress();
@@ -69,16 +76,28 @@ route('GET', '/library', async (): Promise<Library> => {
 });
 route('POST', '/games/:id/launch', ({ params }) => {
   const [source, ref] = decodeURIComponent(params.id).split(/:(.*)/);
+  const id = decodeURIComponent(params.id);
   if (source === 'steam') {
     steam.launch(Number(ref));
+    running.track(id, undefined, Number(ref));
     return { simulated: false };
   }
   if (source === 'epic') {
-    epic.launch(ref);
+    running.track(id, epic.launch(ref));
     return { simulated: false };
   }
-  return emu.launchRom(decodeURIComponent(params.id));
+  return emu.launchRom(id);
 });
+route('GET', '/games/running', () => running.status());
+route('POST', '/games/stop', () => running.stop());
+
+// ------------------------------------------------------------------ Son, captures, Bluetooth
+route('GET', '/media/volume', () => media.getVolume());
+route('POST', '/media/volume', ({ body }) => media.setVolume(Number(body.volume)));
+route('POST', '/media/screenshot', () => media.screenshot());
+route('GET', '/bluetooth', () => bluetooth.adapter());
+route('POST', '/bluetooth/scan', () => bluetooth.scan());
+route('POST', '/bluetooth/pair', ({ body }) => bluetooth.pair(String(body.mac ?? '')));
 route('POST', '/games/:id/install', ({ params }) => {
   const [source, ref] = decodeURIComponent(params.id).split(/:(.*)/);
   if (source === 'epic') epic.install(ref);

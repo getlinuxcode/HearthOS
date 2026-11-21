@@ -14,6 +14,10 @@ export interface SystemDef {
   corePackage: string;
   thumbs: string;
   bios?: string[];
+  /** Émulateur autonome (AppImage téléchargée) au lieu d'un cœur libretro */
+  standalone?: string;
+  /** Extensions reconnues seulement dans le dossier de ce système (roms/switch2/…) */
+  folderExtensions?: string[];
 }
 
 export const SYSTEMS: SystemDef[] = [
@@ -28,10 +32,12 @@ export const SYSTEMS: SystemDef[] = [
   { id: 'mastersystem', name: 'Master System', short: 'SMS', maker: 'Sega', extensions: ['.sms'], aliases: ['mastersystem', 'sms'], core: 'genesis_plus_gx', corePackage: 'libretro-genesis-plus-gx', thumbs: 'Sega - Master System - Mark III' },
   { id: 'megadrive', name: 'Mega Drive', short: 'MD', maker: 'Sega', extensions: ['.md', '.gen', '.smd'], aliases: ['megadrive', 'genesis', 'md'], core: 'genesis_plus_gx', corePackage: 'libretro-genesis-plus-gx', thumbs: 'Sega - Mega Drive - Genesis' },
   { id: 'dreamcast', name: 'Dreamcast', short: 'DC', maker: 'Sega', extensions: ['.gdi', '.cdi'], aliases: ['dreamcast', 'dc'], core: 'flycast', corePackage: 'libretro-flycast', thumbs: 'Sega - Dreamcast', bios: ['dc/dc_boot.bin'] },
-  { id: 'psx', name: 'PlayStation', short: 'PS1', maker: 'Sony', extensions: ['.pbp'], aliases: ['psx', 'ps1', 'playstation'], core: 'swanstation', corePackage: 'libretro-swanstation', thumbs: 'Sony - PlayStation', bios: ['scph5501.bin'] },
+  { id: 'psx', name: 'PlayStation', short: 'PS1', maker: 'Sony', extensions: ['.pbp'], aliases: ['psx', 'ps1', 'playstation'], core: 'mednafen_psx_hw', corePackage: 'libretro-beetle-psx-hw', thumbs: 'Sony - PlayStation', bios: ['scph5501.bin'] },
   { id: 'psp', name: 'PlayStation Portable', short: 'PSP', maker: 'Sony', extensions: ['.cso'], aliases: ['psp'], core: 'ppsspp', corePackage: 'libretro-ppsspp', thumbs: 'Sony - PlayStation Portable' },
   { id: 'pcengine', name: 'PC Engine', short: 'PCE', maker: 'NEC', extensions: ['.pce'], aliases: ['pcengine', 'tg16'], core: 'mednafen_pce_fast', corePackage: 'libretro-beetle-pce-fast', thumbs: 'NEC - PC Engine - TurboGrafx 16' },
-  { id: 'arcade', name: 'Arcade (FinalBurn Neo)', short: 'ARC', maker: 'Arcade', extensions: [], aliases: ['arcade', 'fbneo', 'mame'], core: 'fbneo', corePackage: 'libretro-fbneo', thumbs: 'FBNeo - Arcade Games' },
+  { id: 'switch', name: 'Nintendo Switch', short: 'Switch', maker: 'Nintendo', extensions: ['.nsp', '.xci', '.nro'], aliases: ['switch', 'ns', 'nx'], core: 'eden', corePackage: '', standalone: 'eden', thumbs: '', bios: ['switch/prod.keys', 'switch/firmware'] },
+  { id: 'switch2', name: 'Nintendo Switch 2 (expérimental)', short: 'Switch 2', maker: 'Nintendo', extensions: [], folderExtensions: ['.nsp', '.xci'], aliases: ['switch2', 'ns2', 'nx2'], core: 'eden-nx2', corePackage: '', standalone: 'eden-nx2', thumbs: '', bios: ['switch2/prod.keys', 'switch2/firmware'] },
+  { id: 'arcade', name: 'Arcade (MAME)', short: 'ARC', maker: 'Arcade', extensions: [], aliases: ['arcade', 'fbneo', 'mame'], core: 'mame', corePackage: 'libretro-mame', thumbs: 'MAME' },
 ];
 
 /**
@@ -59,5 +65,5 @@ export function systemForFolderName(name: string): SystemDef | undefined {
 
 export function accepts(sys: SystemDef, ext: string): boolean {
   ext = ext.toLowerCase();
-  return sys.extensions.includes(ext) || AMBIGUOUS_EXT.includes(ext);
+  return sys.extensions.includes(ext) || !!sys.folderExtensions?.includes(ext) || AMBIGUOUS_EXT.includes(ext);
 }

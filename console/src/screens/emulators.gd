@@ -192,7 +192,7 @@ func _sys_card(s: Dictionary) -> Button:
 	if s.get("bios", null) is Array:
 		for bi in s.bios:
 			if not bi.present:
-				st.add_child(UI.label("· BIOS manquant", 18, 700, UI.WARN))
+				st.add_child(UI.label("· %s manquant" % ("clés" if s.get("standalone", null) is Dictionary else "BIOS"), 18, 700, UI.WARN))
 				break
 	v.add_child(st)
 	UI.center_pivot(b)
@@ -223,12 +223,20 @@ func _system_dialog(s: Dictionary) -> void:
 	big.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	big.modulate = MAKER_COLORS.get(s.maker, UI.ACCENT).lightened(0.5)
 	v.add_child(big)
-	v.add_child(Dialog.text("Moteur : %s (libretro) · %s" % [s.core, "installé" if s.coreInstalled else "non installé"]))
-	var exts := " ".join(PackedStringArray(s.extensions)) if s.extensions.size() > 0 else ".zip"
-	v.add_child(Dialog.text("Formats : %s, et .cue / .chd / .iso / .zip dans un dossier attribué à cette console." % exts))
+	var sa = s.get("standalone", null)
+	if sa is Dictionary:
+		var ver: String = (" " + str(sa.version)) if sa.get("version", null) != null else ""
+		v.add_child(Dialog.text("Moteur : %s%s · %s" % [sa.name, ver, "installé" if s.coreInstalled else "non installé (téléchargé depuis le site officiel du projet)"]))
+		v.add_child(Dialog.text("Formats : .nsp, .xci. Clés et firmware ne sont pas fournis : extrayez-les de votre propre console et déposez prod.keys et le dossier firmware/ dans bios/%s/." % s.id))
+	else:
+		v.add_child(Dialog.text("Moteur : %s (libretro) · %s" % [s.core, "installé" if s.coreInstalled else "non installé"]))
+		var exts := " ".join(PackedStringArray(s.extensions)) if s.extensions.size() > 0 else ".zip"
+		v.add_child(Dialog.text("Formats : %s, et .cue / .chd / .iso / .zip dans un dossier attribué à cette console." % exts))
+	if s.id == "switch2":
+		v.add_child(UI.label("Expérimental : peu de jeux démarrent, les performances sont limitées.", 23, 600, UI.WARN))
 	if s.get("bios", null) is Array:
 		for bi in s.bios:
-			var l := UI.label("BIOS %s : %s" % [bi.file, "présent" if bi.present else "manquant (à déposer dans bios/)"], 23, 600, UI.OK if bi.present else UI.WARN)
+			var l := UI.label("%s : %s" % [bi.file, "présent" if bi.present else "manquant (à déposer dans bios/)"], 23, 600, UI.OK if bi.present else UI.WARN)
 			v.add_child(l)
 	var btns := [["Fermer", Callable(), "normal", "close"]]
 	if not s.coreInstalled:
@@ -239,7 +247,7 @@ func _system_dialog(s: Dictionary) -> void:
 func _install(s: Dictionary) -> void:
 	_installing[s.id] = true
 	_render_systems()
-	var r = await App.api("POST", "/emu/systems/%s/install" % s.id)
+	var r = await App.api("POST", "/emu/systems/%s/install" % s.id, null, 900)
 	_installing.erase(s.id)
 	if r is Array:
 		_systems = r

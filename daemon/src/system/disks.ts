@@ -74,9 +74,9 @@ export async function listDisks(): Promise<Disk[]> {
     const partitions: Partition[] = children.map((c) => {
       let os: Partition['os'] = 'data';
       if (c.parttype === ESP_GUID) os = 'efi';
-      else if (c.fstype === 'ntfs' && c.parttype === MS_BASIC_GUID && hasEsp && c.size > 30 * GB) os = 'windows';
+      else if ((c.fstype === 'ntfs' || c.fstype === 'BitLocker') && c.parttype === MS_BASIC_GUID && hasEsp && c.size > 30 * GB) os = 'windows';
       else if (c.fstype === 'ext4' || c.fstype === 'btrfs' || c.fstype === 'xfs') os = 'linux';
-      return { path: c.path, size: c.size, fstype: c.fstype ?? undefined, label: c.label ?? c.partlabel ?? undefined, os };
+      return { path: c.path, size: c.size, fstype: c.fstype ?? undefined, label: c.label ?? c.partlabel ?? undefined, os, bitlocker: c.fstype === 'BitLocker' || undefined };
     });
     const isBootMedia = children.some((c) => c.mountpoints?.some((m) => m?.startsWith('/run/archiso')));
     const detectedOS: string[] = [];
@@ -94,7 +94,7 @@ export async function listDisks(): Promise<Disk[]> {
       detectedOS,
       isBootMedia,
     };
-    const win = partitions.filter((p) => p.os === 'windows').sort((a, b) => b.size - a.size)[0];
+    const win = partitions.filter((p) => p.os === 'windows' && !p.bitlocker && p.fstype === 'ntfs').sort((a, b) => b.size - a.size)[0];
     if (win) {
       const min = await ntfsMinSize(win.path).catch(() => null);
       if (min) disk.shrinkable = { partition: win.path, maxBytes: Math.max(0, win.size - min - SAFETY_MARGIN) };

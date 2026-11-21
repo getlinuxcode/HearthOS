@@ -83,7 +83,8 @@ func on_cancel() -> bool:
 	match _stage:
 		"mode": _go("disk")
 		"size": _go("mode")
-		"confirm": _go("mode" if _mode == "erase" else "size")
+		"manual": _go("mode")
+		"confirm": _go({"erase": "mode", "manual": "manual"}.get(_mode, "size"))
 		"progress": return true
 		_: return false
 	App.sfx.play("transition_back")
@@ -97,6 +98,7 @@ func _go(s: String) -> void:
 		"disk": _disk_stage()
 		"mode": _mode_stage()
 		"size": _size_stage()
+		"manual": _manual_stage()
 		"confirm": _confirm_stage()
 		"progress": _progress_stage()
 	var i := 0
@@ -253,6 +255,7 @@ func _mode_stage() -> void:
 		["alongside", "À côté de Windows", "Windows reste intact. Au démarrage : jouer ici, ou travailler sous Windows.", can_along, "logout"],
 		["free", "Dans l'espace libre", "Utilise %s non partitionnés sans toucher au reste." % _fmt(d.get("freeSpace", 0)), can_free, "folder"],
 		["erase", "Effacer tout le disque", "Supprime TOUT le contenu (Windows compris) pour ne garder que la console.", d.size >= MIN_GB * GB, "close"],
+		["manual", "Partitionnement manuel", "Choisissez vous-même la partition système (formatée) et la partition EFI parmi les partitions existantes.", d.partitions.size() > 0, "tune"],
 	]
 	for o in opts:
 		var b := _card(130)
@@ -271,7 +274,10 @@ func _mode_stage() -> void:
 		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		h.add_child(v)
 		v.add_child(UI.label(o[1], 32, 700, UI.DANGER if danger else UI.TEXT))
-		var desc := UI.label(o[2] if o[3] else "Indisponible sur ce disque", 22, 400, UI.DIM if o[3] else UI.WARN)
+		var why := "Indisponible sur ce disque"
+		if o[0] == "alongside" and _has_bitlocker(d):
+			why = "Windows est chiffré par BitLocker : suspendez-le dans Windows, puis recommencez"
+		var desc := UI.label(o[2] if o[3] else why, 22, 400, UI.DIM if o[3] else UI.WARN)
 		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(desc)
 		var mode: String = o[0]
@@ -280,6 +286,8 @@ func _mode_stage() -> void:
 			if mode == "erase":
 				_size_gb = int(d.size / GB)
 				_go("confirm")
+			elif mode == "manual":
+				_go("manual")
 			else:
 				_size_gb = clampi(int(_max_gb() * 0.5 / STEP_GB) * STEP_GB, MIN_GB, _max_gb())
 				_go("size"))
@@ -440,7 +448,12 @@ func _confirm_stage() -> void:
 			lines.append(["Windows", "réduit de %d Go, ses fichiers sont conservés" % _size_gb, UI.TEXT])
 			lines.append(["Démarrage", "menu pour choisir le système", UI.TEXT])
 		"free": lines.append(["Espace", "%d Go d'espace libre utilisés" % _size_gb, UI.TEXT])
-	lines.append(["Système", "Arch Linux · noyau linux-cachyos · btrfs avec instantanés", UI.TEXT])
+		"manual":
+			lines.append(["Système", "%s (sera formatée en btrfs)" % _manual.root, UI.WARN])
+			if _manual.get("efi", "") != "":
+				lines.append(["EFI", "%s (%s)" % [_manual.efi, "formatée" if _manual.get("formatEfi", false) else "réutilisée"], UI.TEXT])
+	lines.append(["Hearth", "Arch Linux · btrfs avec instantanés · comptes et réglages de cette session conservés", UI.TEXT])
+	lines.append(["Démarrage", "menu GRUB : Hearth par défaut, Windows et autres systèmes détectés", UI.TEXT])
 	for l in lines:
 		var h := HBoxContainer.new()
 		h.add_theme_constant_override("separation", 20)
@@ -484,7 +497,10 @@ func _process(delta: float) -> void:
 
 func _launch_install() -> void:
 	App.sfx.play("confirm")
-	var r = await App.api("POST", "/install/start", {"disk": _disk.path, "mode": _mode, "sizeGB": _size_gb})
+	var plan := {"disk": _disk.path, "mode": _mode, "sizeGB": _size_gb}
+	if _mode == "manual":
+		plan["manual"] = _manual
+	var r = await App.api("POST", "/install/start", plan)
 	if r is Dictionary and r.has("_error"):
 		App.sfx.play("error")
 		App.toast(r._error, "close", UI.DANGER)
@@ -547,13 +563,91 @@ func _poll_progress() -> void:
 		_poll.stop()
 		App.bg.set_energy(0.0, 1.5)
 		App.sfx.play("success")
-		_step_label.text = "Simulation terminée" if p.simulated else "Installation terminée : retirez la clé USB puis redémarrez."
-		var ok := UI.chunky("Continuer", "check", "primary", 30)
+		_step_label.text = "Simulation terminée" if p.simulated else "Hearth est installé ! Retirez la clé USB puis redémarrez : le menu de démarrage s'affichera."
+		var ok := UI.chunky("Continuer" if p.simulated else "Redémarrer maintenant", "check" if p.simulated else "refresh", "primary", 30)
 		ok.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		ok.pressed.connect(func(): on_done.call())
+		if p.simulated:
+			ok.pressed.connect(func(): on_done.call())
+		else:
+			ok.pressed.connect(func():
+				App.bg.blackout(1.0, 0.6)
+				App.api("POST", "/power/reboot"))
 		_body.add_child(ok)
 		UI.fade_in(ok, 0.2, 0.4)
 		App.quiet_focus(ok)
 	elif p.state == "error":
 		_poll.stop()
-		App.toast(p.get("error", "Échec"), "close", UI.DANGER)
+		App.bg.set_energy(0.0, 1.0)
+		App.sfx.play("error")
+		_step_label.text = "Installation interrompue : %s" % p.get("error", "erreur inconnue")
+		_step_label.add_theme_color_override("font_color", UI.DANGER)
+		_step_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var back := UI.chunky("Revenir au choix du disque", "arrow_back", "normal", 28)
+		back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		back.pressed.connect(func(): _go("disk"))
+		_body.add_child(back)
+		App.quiet_focus(back)
+
+
+# ------------------------------------------------------------------ Partitionnement manuel
+
+var _manual := {}
+var _roles := {}
+
+func _has_bitlocker(d: Dictionary) -> bool:
+	for p in d.get("partitions", []):
+		if p.get("bitlocker", false):
+			return true
+	return false
+
+
+func _manual_stage() -> void:
+	_body.add_child(_title("Partitionnement manuel", "Attribuez un rôle aux partitions de %s. Gauche / droite pour changer." % _disk.model))
+	var Rows = load("res://src/widgets/rows.gd")
+	var rows = Rows.new()
+	var defs := []
+	_roles = {}
+	for p in _disk.partitions:
+		var path: String = p.path
+		var is_esp: bool = p.get("os", "") == "efi"
+		_roles[path] = "efi" if is_esp and not _roles.values().has("efi") else "ignore"
+		var desc := "%s · %s%s" % [_fmt(p.size), str(p.get("fstype", "inconnu")), (" · " + str(p.label)) if p.get("label", "") != "" else ""]
+		var opts := [["ignore", "Ne pas toucher"], ["root", "Système Hearth (formatée)"], ["efi", "EFI (réutilisée)"], ["efi_fmt", "EFI (formatée)"]]
+		if p.get("bitlocker", false) or p.get("os", "") == "windows":
+			opts = [["ignore", "Ne pas toucher (Windows)"]]
+		defs.append({"kind": "choice", "label": path, "desc": desc, "options": opts,
+			"get": func(): return _roles[path],
+			"set": func(v): _roles[path] = v})
+	if defs.is_empty():
+		defs.append({"kind": "info", "label": "Aucune partition", "value": "Utilisez « Effacer tout le disque » ou créez des partitions"})
+	rows.set_rows(defs)
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", UI.panel_box(UI.PANEL, 28, 16))
+	panel.add_child(rows)
+	_body.add_child(panel)
+	var next := UI.chunky("Continuer", "check", "primary", 30)
+	next.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	next.pressed.connect(_manual_next)
+	_body.add_child(next)
+	_focus_first = rows.first_focusable() if rows.first_focusable() else next
+
+
+func _manual_next() -> void:
+	var roots := []
+	var efis := []
+	for path in _roles:
+		match _roles[path]:
+			"root": roots.append(path)
+			"efi", "efi_fmt": efis.append(path)
+	var err := ""
+	if roots.size() != 1:
+		err = "Choisissez une (et une seule) partition « Système Hearth »"
+	elif efis.size() > 1:
+		err = "Une seule partition EFI à la fois"
+	if err != "":
+		App.sfx.play("error")
+		App.toast(err, "close", UI.DANGER)
+		return
+	var efi: String = efis[0] if efis.size() == 1 else ""
+	_manual = {"root": roots[0], "efi": efi, "formatEfi": efi != "" and _roles[efi] == "efi_fmt"}
+	_go("confirm")

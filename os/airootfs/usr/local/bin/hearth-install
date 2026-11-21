@@ -172,9 +172,27 @@ rsync -aAXH --numeric-ids --no-inc-recursive --info=progress2 --outbuf=L \
   "$LOWER/" "$TARGET/" 2>>/var/log/hearth-install.log \
   | stdbuf -oL tr '\r' '\n' | awk -v t="$TOTAL" '/%/ { gsub(/,/,"",$1); if (t>0) { p=int(20 + 55*$1/t); if (p!=last) { print "##PROGRESS " p " Copie du système"; fflush(); last=p } } }'
 
+# Scripts de session : on prend la version la plus récente disponible (celle livrée avec ce
+# script par une mise à jour, sinon celle du système live en cours, éventuellement corrigée),
+# plutôt que celle figée dans l'image de l'ISO.
+SELF_DIR="$(dirname "$(readlink -f "$0")")"
+for f in hearth-session hearth-inner; do
+  if [ -f "$SELF_DIR/$f" ]; then src="$SELF_DIR/$f"; else src="/usr/local/bin/$f"; fi
+  [ -f "$src" ] && install -m 755 "$src" "$TARGET/usr/local/bin/$f"
+done
+
 progress 76 "Noyau et microcode"
-cp "$BOOTMNT"/arch/boot/x86_64/vmlinuz-linux "$TARGET/boot/"
-cp "$BOOTMNT"/arch/boot/*-ucode.img "$TARGET/boot/" 2>/dev/null || true
+# Avec assez de RAM, archiso copie le système en mémoire (copytoram) et démonte la clé :
+# bootmnt n'existe plus. Le noyau est aussi fourni par le paquet linux dans /usr/lib/modules.
+if [ -f "$BOOTMNT/arch/boot/x86_64/vmlinuz-linux" ]; then
+  cp "$BOOTMNT"/arch/boot/x86_64/vmlinuz-linux "$TARGET/boot/"
+  cp "$BOOTMNT"/arch/boot/*-ucode.img "$TARGET/boot/" 2>/dev/null || true
+else
+  KVER=$(ls "$TARGET/usr/lib/modules" | grep -v extramodules | sort -V | tail -1)
+  [ -f "$TARGET/usr/lib/modules/$KVER/vmlinuz" ] || fail "Noyau introuvable"
+  cp "$TARGET/usr/lib/modules/$KVER/vmlinuz" "$TARGET/boot/vmlinuz-linux"
+  # Sans les images microcode séparées, mkinitcpio intègre le microcode (hook microcode).
+fi
 
 # ------------------------------------------------------------------ Configuration
 progress 80 "Configuration du système"

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { BIOS_DIR, DATA_DIR, MOCK } from '../config.js';
-import { HttpError, launchDetached, readJson, sleep, writeJson } from '../util.js';
+import { HttpError, launchDetached, readJson, run, sleep, writeJson } from '../util.js';
 import type { ChildProcess } from 'node:child_process';
 
 interface StandaloneDef {
@@ -96,6 +96,12 @@ export async function install(id: string): Promise<void> {
     throw new HttpError(502, `${def.name} : fichier téléchargé invalide`);
   fs.writeFileSync(tmp, buf, { mode: 0o755 });
   fs.renameSync(tmp, binPath(id));
+  // Extraction une fois pour toutes : on peut alors lancer eden-cli, la version sans interface
+  // (l'AppImage lance sinon l'interface Qt de l'émulateur), et on ne dépend pas de FUSE.
+  fs.rmSync(path.join(dir, 'squashfs-root'), { recursive: true, force: true });
+  await run(binPath(id), ['--appimage-extract'], 5 * 60_000, { cwd: dir, env: { ...process.env, APPIMAGE_EXTRACT_AND_RUN: '1' } }).catch((e) =>
+    console.warn(`[emu] extraction ${def.name} impossible, lancement via l'AppImage :`, (e as Error).message),
+  );
   fs.writeFileSync(path.join(dir, 'version'), pick.rel.tag_name);
 }
 
@@ -138,7 +144,9 @@ export function launch(id: string, rom: string): ChildProcess | null {
   }
   if (!isInstalled(id)) throw new HttpError(409, `${def.name} non installé`);
   syncKeys(def);
-  // -f plein écran, -g lance directement le jeu (pas d'interface de l'émulateur).
-  // APPIMAGE_EXTRACT_AND_RUN évite de dépendre de FUSE.
+  // eden-cli : frontal SDL sans interface, -f plein écran, -g le jeu.
+  const cli = path.join(ROOT, id, 'squashfs-root', 'bin', 'eden-cli');
+  if (fs.existsSync(cli)) return launchDetached(cli, ['-f', '-g', rom]);
+  // Repli : AppImage complète (APPIMAGE_EXTRACT_AND_RUN évite de dépendre de FUSE).
   return launchDetached(binPath(id), ['-f', '-g', rom], { APPIMAGE_EXTRACT_AND_RUN: '1' });
 }

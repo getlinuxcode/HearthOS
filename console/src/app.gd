@@ -41,6 +41,9 @@ var _modals: Array[Control] = []
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# Une interface de menus n'a pas besoin de plus : sur un écran 144 Hz en 4K, le rendu
+	# non bridé faisait tourner la carte graphique à pleine puissance.
+	Engine.max_fps = 60
 	for a in OS.get_cmdline_user_args():
 		var kv := a.trim_prefix("--").split("=", true, 1)
 		args[kv[0]] = kv[1] if kv.size() > 1 else "1"

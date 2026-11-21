@@ -11,9 +11,9 @@ export class HttpError extends Error {
 }
 
 /** Exécute une commande sans shell (pas d'injection possible). */
-export function run(cmd: string, args: string[], timeoutMs = 20_000): Promise<string> {
+export function run(cmd: string, args: string[], timeoutMs = 20_000, opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(cmd, args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, ...opts }, (err, stdout, stderr) => {
       if (err) reject(new Error(`${cmd} ${args.join(' ')}: ${stderr || err.message}`.trim()));
       else resolve(stdout);
     });
@@ -24,6 +24,24 @@ export function run(cmd: string, args: string[], timeoutMs = 20_000): Promise<st
 export function runRoot(cmd: string, args: string[], timeoutMs?: number): Promise<string> {
   if (process.getuid?.() === 0) return run(cmd, args, timeoutMs);
   return run('sudo', ['-n', cmd, ...args], timeoutMs);
+}
+
+/**
+ * Installe des paquets Arch absents. Ceux déjà présents ne demandent rien (pas de base de
+ * paquets nécessaire). Pour les autres on synchronise d'abord la base : un système fraîchement
+ * installé depuis l'ISO n'en a pas (pacman -S échouait avec « database file does not exist »).
+ */
+export async function pacmanInstall(pkgs: string[], timeoutMs = 30 * 60_000): Promise<void> {
+  const missing: string[] = [];
+  for (const p of pkgs) {
+    try {
+      await run('pacman', ['-Q', p], 5000);
+    } catch {
+      missing.push(p);
+    }
+  }
+  if (!missing.length) return;
+  await runRoot('pacman', ['-Sy', '--needed', '--noconfirm', ...missing], timeoutMs);
 }
 
 /** Lance un processus détaché (jeu, Steam, RetroArch). */

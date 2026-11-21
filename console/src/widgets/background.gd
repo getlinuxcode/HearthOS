@@ -48,10 +48,25 @@ void fragment() {
 	col *= 0.35 + 0.75 * f * intensity;
 	col += energy * vec3(0.25, 0.25, 0.35) * f;
 	vec2 v = UV - 0.5; col *= 1.0 - dot(v, v) * 1.1;
-	col += (hash(UV * 1543.0 + fract(TIME * 7.0)) - 0.5) * 0.022;
 	COLOR = vec4(max(col, vec3(0.0)), 1.0);
 }
 """
+
+# Affichage du ciel (calculé en basse résolution) : agrandi avec filtrage + grain fin
+# en pleine résolution, qui masque aussi les paliers de couleur.
+const SKY_VIEW := """
+shader_type canvas_item;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void fragment() {
+	vec3 c = texture(TEXTURE, UV).rgb;
+	c += (hash(SCREEN_UV * 1543.0 + fract(TIME * 7.0)) - 0.5) * 0.022;
+	COLOR = vec4(c, 1.0);
+}
+"""
+
+## Résolution de calcul du ciel : nuages flous, aucune différence visible une fois agrandis,
+## mais ~60 fois moins de calcul qu'en 4K.
+const SKY_RES := Vector2i(480, 270)
 
 const HERO := """
 shader_type canvas_item;
@@ -64,6 +79,8 @@ void fragment() {
 """
 
 var sky: ColorRect
+var _sky_vp: SubViewport
+var _sky_view: TextureRect
 var _mat: ShaderMaterial
 var _heroes: Array[TextureRect] = []
 var _hero_idx := 0
@@ -89,8 +106,30 @@ func _ready() -> void:
 	_mat.set_shader_parameter("col_c", Color(0.05, 0.45, 0.55))
 	_mat.set_shader_parameter("energy", 0.0)
 	sky.material = _mat
-	add_child(sky)
-	sky.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_sky_vp = SubViewport.new()
+	_sky_vp.size = SKY_RES
+	_sky_vp.disable_3d = true
+	_sky_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(_sky_vp)
+	_sky_vp.add_child(sky)
+	sky.position = Vector2.ZERO
+	sky.size = Vector2(SKY_RES)
+	_sky_view = TextureRect.new()
+	_sky_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sky_view.texture = _sky_vp.get_texture()
+	_sky_view.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_sky_view.stretch_mode = TextureRect.STRETCH_SCALE
+	_sky_view.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	var vm := ShaderMaterial.new()
+	var vs := Shader.new()
+	vs.code = SKY_VIEW
+	vm.shader = vs
+	_sky_view.material = vm
+	add_child(_sky_view)
+	_sky_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# Fond masqué (jeu en cours) : on arrête aussi de calculer le ciel.
+	visibility_changed.connect(func():
+		_sky_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS if is_visible_in_tree() else SubViewport.UPDATE_DISABLED)
 
 	for i in 2:
 		var tr := TextureRect.new()

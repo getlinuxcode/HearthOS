@@ -34,7 +34,9 @@ if systemd-detect-virt -q; then
   exec cage -s -- /usr/local/bin/hearth-inner
 fi
 
-ARGS=(-e -f)
+# Pas de -e (mode Steam) : dans ce mode gamescope n'affiche que les fenêtres désignées par le
+# client Steam ; sans lui l'écran reste sur le TTY (constaté sur Intel Arc A310 + TV 4K).
+ARGS=(-f)
 [ -n "${HEARTH_W:-}" ] && ARGS+=(-W "$HEARTH_W" -H "$HEARTH_H")
 [ -n "${HEARTH_REFRESH:-}" ] && ARGS+=(-r "$HEARTH_REFRESH")
 [ "${HEARTH_VRR:-0}" = 1 ] && ARGS+=(--adaptive-sync)

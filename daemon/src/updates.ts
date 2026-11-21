@@ -5,7 +5,7 @@ import path from 'node:path';
 import { DATA_DIR, MOCK, MODE, UPDATE_URL, VERSION } from './config.js';
 import { UPDATE_PUBLIC_KEY } from './update-key.js';
 import type { UpdateStatus } from './types.js';
-import { HttpError, readJson, run, writeJson } from './util.js';
+import { HttpError, pacmanInstall, readJson, run, writeJson } from './util.js';
 
 // Mises à jour de l'application (interface + service) sans refaire d'ISO :
 //  1. le mainteneur publie une release GitHub (scripts/publish-update.mjs) :
@@ -223,5 +223,5 @@ async function installPackages(release: string): Promise<void> {
     .map((l) => l.replace(/#.*/, '').trim())
     .filter((l) => /^[a-z0-9@._+-]+$/.test(l));
   if (!pkgs.length) return;
-  await run('sudo', ['-n', 'pacman', '-S', '--needed', '--noconfirm', ...pkgs], 30 * 60_000);
+  await pacmanInstall(pkgs);
 }

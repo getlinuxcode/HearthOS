@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { BIOS_DIR, MOCK, ROMS_DIR } from '../config.js';
 import type { EmuSystem, Game, RomFolder } from '../types.js';
-import { HttpError, launchDetached, readJson, runRoot, sleep, writeJson } from '../util.js';
+import { HttpError, launchDetached, pacmanInstall, readJson, sleep, writeJson } from '../util.js';
 import { accepts, byId, SYSTEMS, systemForExt, systemForFolderName, type SystemDef } from './systems.js';
 import { track } from '../running.js';
 import * as standalone from './standalone.js';
@@ -226,7 +226,7 @@ export async function installCore(systemId: string): Promise<void> {
     return;
   }
   // retroarch est installé avec la distribution ; on n'ajoute que le cœur.
-  await runRoot('pacman', ['-S', '--noconfirm', '--needed', sys.corePackage], 10 * 60_000);
+  await pacmanInstall([sys.corePackage], 10 * 60_000);
 }
 
 // ---------------------------------------------------------------- Jeux

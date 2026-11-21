@@ -1,6 +1,8 @@
 # Paquets Arch qu'une mise à jour de Hearth doit garantir sur les consoles installées.
 # Ajoutez ici tout nouveau paquet dont l'interface, le service ou les scripts ont besoin :
-# la mise à jour l'installera (pacman -S --needed), sans refaire d'ISO.
+# la mise à jour l'installera, sans refaire d'ISO.
 # Un nom de paquet par ligne.
-grim
-umu-launcher
+#
+# Attention : le service 0.3.0 appelle « pacman -S » sans synchroniser la base, ce qui échoue
+# sur une console fraîchement installée. Garder cette liste vide tant que des consoles 0.3.0
+# doivent pouvoir passer à la version suivante (grim et umu-launcher sont déjà dans l'ISO).

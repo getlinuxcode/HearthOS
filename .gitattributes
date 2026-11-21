@@ -1,0 +1,4 @@
+# Les fichiers du système Linux doivent garder des fins de ligne LF, même édités sous Windows.
+* text=auto
+*.sh text eol=lf
+os/** text eol=lf

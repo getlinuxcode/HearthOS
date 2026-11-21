@@ -1,0 +1,11 @@
+#!/bin/bash
+# Exécuté À L'INTÉRIEUR de gamescope : daemon (hérite du DISPLAY pour lancer Steam/RetroArch) + shell.
+node /opt/hearth/daemon/dist/server.js &
+DAEMON=$!
+trap 'kill $DAEMON 2>/dev/null' EXIT
+for _ in $(seq 1 50); do
+  curl -fs http://127.0.0.1:7300/api/system/info >/dev/null 2>&1 && break
+  sleep 0.1
+done
+# Interface native : export Godot pour Linux (à produire avec les modèles d'export Godot).
+exec /opt/hearth/console/hearth.x86_64 --fullscreen

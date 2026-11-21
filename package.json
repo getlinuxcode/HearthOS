@@ -1,0 +1,13 @@
+{
+  "name": "hearth",
+  "private": true,
+  "workspaces": ["daemon", "shell"],
+  "scripts": {
+    "dev": "concurrently -k -n daemon,shell -c magenta,cyan \"npm:dev -w daemon\" \"npm:dev -w shell\"",
+    "build": "npm run build -w shell && npm run build -w daemon",
+    "typecheck": "npm run typecheck -w shell && npm run typecheck -w daemon"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

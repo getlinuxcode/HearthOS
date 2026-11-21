@@ -1,0 +1,31 @@
+#!/bin/bash
+# Session console : gamescope en plein écran sur le TTY, avec le shell Hearth dedans.
+# Lancé automatiquement à la connexion sur tty1 (voir /etc/skel/.bash_profile).
+
+DATA="$HOME/.local/share/hearth"
+mkdir -p "$DATA"
+# Réglages d'affichage écrits par le daemon (Réglages → Affichage)
+[ -f "$DATA/display.env" ] && . "$DATA/display.env"
+
+ARGS=(-e -f)
+[ -n "${HEARTH_W:-}" ] && ARGS+=(-W "$HEARTH_W" -H "$HEARTH_H")
+[ -n "${HEARTH_REFRESH:-}" ] && ARGS+=(-r "$HEARTH_REFRESH")
+[ "${HEARTH_VRR:-0}" = 1 ] && ARGS+=(--adaptive-sync)
+[ "${HEARTH_HDR:-0}" = 1 ] && ARGS+=(--hdr-enabled)
+case "${HEARTH_UPSCALER:-off}" in
+  fsr) ARGS+=(-F fsr) ;;
+  nis) ARGS+=(-F nis) ;;
+  integer) ARGS+=(-S integer) ;;
+esac
+# TODO : limite d'images par seconde (HEARTH_FPS_LIMIT) via mangoapp / gamescope.
+
+export HEARTH_MODE
+[ -d /run/archiso ] && HEARTH_MODE=live || HEARTH_MODE=installed
+
+if gamescope "${ARGS[@]}" -- /usr/local/bin/hearth-inner; then
+  exit 0
+fi
+
+# Repli (machine virtuelle sans Vulkan accéléré, pilote absent) : compositeur kiosque minimal.
+echo "gamescope indisponible, repli sur cage" >&2
+exec cage -s -- /usr/local/bin/hearth-inner

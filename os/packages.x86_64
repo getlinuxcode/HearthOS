@@ -1,0 +1,63 @@
+# Paquets ajoutés au profil releng d'archiso pour l'ISO live.
+# Le système INSTALLÉ utilisera linux-cachyos (dépôt CachyOS) — voir docs/ARCHITECTURE.md.
+
+# --- Session console
+gamescope
+cage
+# (interface : export Godot autonome, aucun paquet requis)
+nodejs
+xorg-xwayland
+xdg-utils
+inter-font
+noto-fonts
+noto-fonts-emoji
+
+# --- Graphique : Mesa (AMD / Intel) + Vulkan + repli logiciel pour les VM
+mesa
+lib32-mesa
+vulkan-radeon
+lib32-vulkan-radeon
+vulkan-intel
+lib32-vulkan-intel
+intel-media-driver
+vulkan-swrast
+vulkan-icd-loader
+lib32-vulkan-icd-loader
+
+# --- NVIDIA (Turing et plus récent ; anciennes cartes : nouveau)
+nvidia-open
+nvidia-utils
+lib32-nvidia-utils
+
+# --- Jeux
+steam
+gamemode
+lib32-gamemode
+mangohud
+lib32-mangohud
+retroarch
+libretro-snes9x
+libretro-mgba
+
+# --- Audio
+pipewire
+pipewire-pulse
+pipewire-alsa
+wireplumber
+
+# --- Réseau / Bluetooth
+networkmanager
+bluez
+bluez-utils
+
+# --- Manettes
+game-devices-udev
+
+# --- Installateur
+archinstall
+parted
+gptfdisk
+ntfs-3g
+btrfs-progs
+dosfstools
+efibootmgr

@@ -1,0 +1,5 @@
+#!/bin/bash
+# Live USB : crée l'utilisateur « player » (Steam refuse de tourner en root).
+id player >/dev/null 2>&1 && exit 0
+useradd -m -G wheel,video,input,audio,render -s /bin/bash player
+passwd -d player

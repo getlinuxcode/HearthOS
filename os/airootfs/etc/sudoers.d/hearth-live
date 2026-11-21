@@ -1,0 +1,3 @@
+# Live USB uniquement : l'installateur a besoin de root (parted, ntfsresize, archinstall).
+# Sur le système installé, ce fichier est remplacé par des règles limitées aux commandes nécessaires.
+player ALL=(ALL) NOPASSWD: ALL

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+out/
+work/
+vm/
+*.iso
+.hearth-data/
+tools/
+console/.godot/

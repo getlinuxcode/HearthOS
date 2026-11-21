@@ -2,3 +2,7 @@
 * text=auto
 *.sh text eol=lf
 os/** text eol=lf
+*.png binary
+*.jpg binary
+*.ttf binary
+*.pf2 binary
